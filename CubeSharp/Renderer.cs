@@ -153,9 +153,11 @@ namespace CubeSharp
     public abstract class RendererBase {
         string vertex_shader_source;
         string fragment_shader_source;
+        string geometry_shader_source;
 
-        int vertex_shader;
-        int fragment_shader;
+        int vertex_shader = 0;
+        int fragment_shader = 0;
+        int geometry_shader = 0;
         int program = 0;
 
         public int Program {
@@ -168,26 +170,45 @@ namespace CubeSharp
                     throw new Exception("No Fragment Source");
 
                 vertex_shader = GL.CreateShader(ShaderType.VertexShader);
-                fragment_shader = GL.CreateShader(ShaderType.FragmentShader);
                 GL.ShaderSource(vertex_shader, vertex_shader_source);
                 GL.CompileShader(vertex_shader);
-                Console.WriteLine("Vertex Comp: " + GL.GetShaderInfoLog(vertex_shader));
+                string vs_log = GL.GetShaderInfoLog(vertex_shader);
+                if(vs_log.Length > 0)
+                    Console.WriteLine("Vertex Comp: " + vs_log);
+
+                fragment_shader = GL.CreateShader(ShaderType.FragmentShader);
                 GL.ShaderSource(fragment_shader, fragment_shader_source);
                 GL.CompileShader(fragment_shader);
-                Console.WriteLine("Fragment Comp: " + GL.GetShaderInfoLog(fragment_shader));
+                string fs_log = GL.GetShaderInfoLog(fragment_shader);
+                if(fs_log.Length > 0)
+                    Console.WriteLine("Fragment Comp: " + fs_log);
+
+                if(geometry_shader_source.Length > 0) {
+                    geometry_shader = GL.CreateShader(ShaderType.GeometryShader);
+                    GL.ShaderSource(geometry_shader, geometry_shader_source);
+                    GL.CompileShader(geometry_shader);
+                    string gs_log = GL.GetShaderInfoLog(geometry_shader);
+                    if(gs_log.Length > 0)
+                        Console.WriteLine("Geometry Comp: " + gs_log);
+                }
 
                 program = GL.CreateProgram();
                 GL.AttachShader(program, vertex_shader);
                 GL.AttachShader(program, fragment_shader);
+                if(geometry_shader != 0)
+                    GL.AttachShader(program, geometry_shader);
                 GL.LinkProgram(program);
-                Console.WriteLine("Link: " + GL.GetProgramInfoLog(program));
+                string ln_log = GL.GetProgramInfoLog(program);
+                if(ln_log.Length > 0)
+                    Console.WriteLine("Link: " + ln_log);
 
                 return program;
             }
         }
 
-        protected void SetSource(string vsrc, string fsrc) {
+        protected void SetSource(string vsrc, string gsrc, string fsrc) {
             vertex_shader_source = vsrc;
+            geometry_shader_source = gsrc;
             fragment_shader_source = fsrc;
         }
 
@@ -282,7 +303,7 @@ namespace CubeSharp
             outColor = vec4(c, c, c, 1);
         }";
 
-        public MeshGraph Model;
+        public MeshFacetData Model;
         private Transformation camera_tranformation;
 
         public Transformation CameraTranformation {
@@ -302,12 +323,12 @@ namespace CubeSharp
             }
         }
 
-        public Renderer(MeshGraph m)
+        public Renderer(MeshFacetData m)
         {
-            SetSource(vertex_shader_source, fragment_shader_source);
+            SetSource(vertex_shader_source, "", fragment_shader_source);
 
             Model = m;
-            Model.UpdateBuffer();
+            Model.UpdateData();
 
             Transformation tf = new Transformation();
             tf.Translate(0, 0, 5);
@@ -323,95 +344,36 @@ namespace CubeSharp
             GL.UseProgram(Program);
 
             if(Mode == ScreenMode) {
+                GL.BindVertexArray(Model.GLAttrib);
+
                 GL.Disable(EnableCap.CullFace);
                 GL.Enable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.DepthTest);
                 GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
                 GL.LineWidth(1);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.TrianglesCount * 3);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
 
-                GL.Disable(EnableCap.DepthTest);
                 GL.Uniform4(Uniform("mode"), 0, 0, 0, 0);
                 GL.PointSize(3);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.TrianglesCount * 3);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
             } else if(Mode == ControlMode) {
+                GL.BindVertexArray(Model.GLAttrib);
+
                 GL.Disable(EnableCap.CullFace);
                 GL.Enable(EnableCap.DepthTest);
                 GL.Uniform4(Uniform("mode"), 5, 0, 0, 0);
                 GL.LineWidth(4);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.TrianglesCount * 3);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
 
                 GL.Disable(EnableCap.DepthTest);
                 GL.Uniform4(Uniform("mode"), 4, 0, 0, 0);
                 GL.PointSize(5);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.TrianglesCount * 3);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
             }
-        }
-    }
-
-    public class ScreenRenderer : RendererBase {
-        string vertex_shader_source = @"
-        #version 330 core
-
-        layout(location = 0) in vec3 positions;
-        out vec2 uvCoord;
-
-        void main()
-        {
-            gl_Position = vec4(positions, 1);
-            uvCoord = positions.xy / 2 + vec2(0.5, 0.5);
-        }";
-
-        string fragment_shader_source = @"
-        #version 330 core
-
-        uniform sampler2D tex;
-        in vec2 uvCoord;
-
-        out vec4 outColor;
-
-        void main()
-        {
-            outColor = textureLod(tex, uvCoord, 0);
-        }";
-
-        private MeshGraph plane;
-        RenderTarget Target;
-
-        public ScreenRenderer(RenderTarget tgt) {
-            Target = tgt;
-
-            plane = new MeshGraph();
-            MeshVertex v1 = plane.AddVertex(-1, -1, 0);
-            MeshVertex v2 = plane.AddVertex( 1, -1, 0);
-            MeshVertex v3 = plane.AddVertex( 1,  1, 0);
-            MeshVertex v4 = plane.AddVertex(-1,  1, 0);
-            plane.AddFacet(v1, v2, v3, v4);
-            plane.UpdateBuffer();
-
-            SetSource(vertex_shader_source, fragment_shader_source);
-        }
-
-        public override void Render(RenderTarget rt) {
-            rt.Use();
-            GL.Viewport(0, 0, 800, 600);
-            GL.ClearColor(0.2f, 0.2f, 0.2f, 0);
-            GL.Clear(ClearBufferMask.ColorBufferBit);
-            GL.Clear(ClearBufferMask.DepthBufferBit);
-
-            GL.UseProgram(Program);
-
-            GL.BindTexture(TextureTarget.Texture2D, Target.TextureColor);
-            GL.ActiveTexture(TextureUnit.Texture0);
-            GL.Uniform1(Uniform("tex"), 0);
-
-            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-
-            plane.UpdateAttrib();
-            GL.DrawArrays(BeginMode.Triangles, 0, plane.TrianglesCount * 3);
         }
     }
 

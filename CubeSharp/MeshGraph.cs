@@ -389,8 +389,6 @@ namespace CubeSharp
             }
         }
 
-        ////////////////////////////////////////////////////////////////////////
-
         int[] attrib_format;
         int attrib_size;
 
@@ -473,6 +471,205 @@ namespace CubeSharp
 
                 GL.UnmapBuffer(BufferTarget.ArrayBuffer);
             }
+        }
+    }
+
+    public abstract class MeshDataBase {
+        private int gl_buffer = 0;
+        private int gl_buffer_size = 0;
+        private int gl_attrib = 0;
+
+        private int[] layouts;
+        private int layout_len;
+
+        protected int[] Layouts {
+            get { return layouts; }
+        }
+
+        protected int LayoutLength {
+            get { return layout_len; }
+        }
+
+        private int count = 0;
+        public int Count {
+            get { return count; }
+        }
+
+        public MeshDataBase(params int[] ly) {
+            layouts = ly;
+            layout_len = layouts.Sum();
+        }
+
+        public int GLBuffer {
+            get {
+                if(gl_buffer == 0)
+                    gl_buffer = GL.GenBuffer();
+
+                return gl_buffer;
+            }
+        }
+
+        public int GLAttrib {
+            get {
+                if(gl_attrib == 0) {
+                    gl_attrib = GL.GenVertexArray();
+
+                    GL.BindVertexArray(gl_attrib);
+                    GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
+
+                    int off = 0;
+                    for(int i = 0; i < layouts.Length; i++) {
+                        GL.EnableVertexAttribArray(i);
+                        GL.VertexAttribPointer(i, layouts[i],
+                                VertexAttribPointerType.Float, true,
+                                layout_len * sizeof(float), off * sizeof(float));
+                        off += layouts[i];
+                    }
+                }
+
+                return gl_attrib;
+            }
+        }
+
+        private IntPtr data = IntPtr.Zero;
+        private int offset = 0;
+
+        protected void StartPushing(int count) {
+            this.count = count;
+            int size = count * LayoutLength * sizeof(float);
+
+            unsafe {
+                if(gl_buffer_size < size) {
+                    int log = (int) Math.Floor(Math.Log(size, 2)) + 1;
+                    int new_size = (int) Math.Pow(2, log);
+
+                    GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
+                    GL.BufferData(BufferTarget.ArrayBuffer, new IntPtr(new_size),
+                            new IntPtr(null), BufferUsageHint.StaticDraw);
+
+                    gl_buffer_size = new_size;
+                }
+
+                GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
+                data = new IntPtr((void*) GL.MapBuffer(
+                    BufferTarget.ArrayBuffer, BufferAccess.WriteOnly));
+
+                Seek(0);
+            }
+        }
+
+        protected void StopPushing() {
+            unsafe {
+                GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
+                GL.UnmapBuffer(BufferTarget.ArrayBuffer);
+                data = IntPtr.Zero;
+            }
+        }
+
+        int current_layout = 0;
+
+        protected void Seek(int pos) {
+            if(pos * layout_len * sizeof(float) >= gl_buffer_size)
+                throw new Exception("Seek Out Bound");
+
+            offset = pos * LayoutLength * sizeof(float);
+            current_layout = 0;
+        }
+
+        protected void PushData(params float[] floatdata) {
+            unsafe {
+                if(data == IntPtr.Zero)
+                    throw new Exception("Did not start pushing.");
+                if(floatdata.Length != layouts[current_layout])
+                    throw new Exception("No such layout.");
+                /*
+                if(sizeof(float) != 4)
+                    throw new Exception("Machine word length is not 4.");
+                */
+
+                float* ptr = (float*) data.ToPointer() + offset;
+                for(int i = 0; i < floatdata.Length; i++) {
+                    ptr[i] = floatdata[i];
+                }
+
+                offset += floatdata.Length;
+                current_layout = (current_layout + 1) % layouts.Length;
+            }
+        }
+
+        public abstract void UpdateData();
+    }
+
+    public class MeshFacetData : MeshDataBase {
+
+        MeshGraph Mesh;
+
+        public MeshFacetData() : base(4, 4) { }
+        public MeshFacetData(MeshGraph mg) : this() {
+            Mesh = mg;
+        }
+
+        public override void UpdateData() {
+            StartPushing(Mesh.TrianglesCount * 3);
+
+            foreach(MeshFacet f in Mesh.Facets) {
+                for(int i = 0; i < f.TrianglesCount; i++) {
+                    // Iteration Count: this.TrianglesCount
+
+                    MeshVertex v1 = f.vertices[0];
+                    MeshVertex v2 = f.vertices[i + 1];
+                    MeshVertex v3 = f.vertices[i + 2];
+                    MeshEdge e12 = v1.EdgeConnecting(v2);
+                    MeshEdge e23 = v2.EdgeConnecting(v3);
+                    MeshEdge e31 = v3.EdgeConnecting(v1);
+
+                    /*
+                       Console.WriteLine(v1.Position);
+                       Console.WriteLine(v2.Position);
+                       Console.WriteLine(v3.Position);
+                       */
+
+                    int[] edgeIdx = new int[] {
+                        e12 == null ? 0 : (e12.Index+1),
+                            e23 == null ? 0 : (e23.Index+1),
+                            e31 == null ? 0 : (e31.Index+1), };
+
+                    PushData(
+                        v1.Position[0],
+                        v1.Position[1],
+                        v1.Position[2],
+                        v1.Index);
+                    PushData(
+                        edgeIdx[0],
+                        0,
+                        edgeIdx[2],
+                        f.Index);
+
+                    PushData(
+                        v2.Position[0],
+                        v2.Position[1],
+                        v2.Position[2],
+                        v2.Index);
+                    PushData(
+                        edgeIdx[0],
+                        edgeIdx[1],
+                        0,
+                        f.Index);
+
+                    PushData(
+                        v3.Position[0],
+                        v3.Position[1],
+                        v3.Position[2],
+                        v3.Index);
+                    PushData(
+                        0,
+                        edgeIdx[1],
+                        edgeIdx[2],
+                        f.Index);
+                }
+            }
+
+            StopPushing();
         }
     }
 }

@@ -12,6 +12,7 @@ namespace CubeSharp
         GLControl glc;
         Renderer rdr;
         MeshGraph msh;
+        MeshFacetData mfd;
         RenderTarget ctl;
 
         public MainWindow()
@@ -20,7 +21,7 @@ namespace CubeSharp
             Size = new Size(900, 600);
             CenterToScreen();
            
-            glc = new GLControl(GraphicsMode.Default,
+            glc = new GLControl(new GraphicsMode(32, 24, 0, 8),
                     3, 3, GraphicsContextFlags.Default);
             glc.Location = new Point(0, 0);
             glc.Size = Size - new Size(100, 0);
@@ -42,10 +43,11 @@ namespace CubeSharp
             Console.WriteLine(GL.GetString(StringName.Version));
 
             msh = new BoxMeshFactory().GenerateMeshGraph();
-            rdr = new Renderer(msh);
+            mfd = new MeshFacetData(msh);
+            rdr = new Renderer(mfd);
             ctl = new RenderTarget();
 
-            msh.UpdateAttrib();
+            mfd.UpdateData();
         }
 
         protected override void OnResize(EventArgs e)
