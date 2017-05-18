@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -53,9 +54,6 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Numerics.Vectors">
       <HintPath>..\..\..\.nuget\System.Numerics.Vectors.4.3.0\lib\portable-net45+win8+wp8+wpa81\System.Numerics.Vectors.dll</HintPath>
-    </Reference>
-    <Reference Include="Nine.Geometry">
-      <HintPath>..\..\..\.nuget\Nine.Geometry.1.1.0\lib\netstandard1.0\Nine.Geometry.dll</HintPath>
     </Reference>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Windows" />

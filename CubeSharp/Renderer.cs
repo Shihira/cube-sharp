@@ -77,15 +77,26 @@ namespace CubeSharp
         private int texture_color = -1;
         private int texture_depth = -1;
 
+        PixelType type;
+
+        public RenderTarget(PixelType t) {
+            type = t;
+        }
+
         private void init() {
             framebuffer = GL.GenFramebuffer();
             texture_color = GL.GenTexture();
             texture_depth = GL.GenTexture();
 
             GL.BindTexture(TextureTarget.Texture2D, texture_color);
-            GL.TexImage2D(TextureTarget.Texture2D, 0,
-                    PixelInternalFormat.Rgba8, 800, 600, 0,
-                    PixelFormat.Rgba, PixelType.Byte, (IntPtr)0);
+            if(type == PixelType.Byte)
+                GL.TexImage2D(TextureTarget.Texture2D, 0,
+                        PixelInternalFormat.Rgba8, 800, 600, 0,
+                        PixelFormat.Rgba, PixelType.Byte, (IntPtr)0);
+            else if(type == PixelType.Float)
+                GL.TexImage2D(TextureTarget.Texture2D, 0,
+                        PixelInternalFormat.Rgba32f, 800, 600, 0,
+                        PixelFormat.Rgba, PixelType.Float, (IntPtr)0);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
             GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
@@ -137,7 +148,7 @@ namespace CubeSharp
         static public RenderTarget Screen {
             get {
                 if(screen == null || screen.framebuffer != 0) {
-                    screen = new RenderTarget();
+                    screen = new RenderTarget(PixelType.Byte);
                     screen.framebuffer = 0;
                 }
 
@@ -232,149 +243,352 @@ namespace CubeSharp
         }
     }
 
-    public class Renderer : RendererBase {
+    public class Camera {
+        public Transformation Tf;
+
+        public Camera() {
+            Tf = new Transformation();
+        }
+
+        public Matrix4 VPMatrix {
+            get {
+                Matrix4 m = Tf.InverseMatrix;
+                m *= Matrix4.CreatePerspectiveFieldOfView(
+                        (float)Math.PI / 2, 1.333f, 0.1f, 100);
+                return m;
+            }
+        }
+    }
+
+    public abstract class RendererWithCamera : RendererBase {
+        public Camera Camera;
+        Matrix4 prev_mat;
+
+        public RendererWithCamera() { }
+
+        protected void UpdateCamera(string name) {
+            GL.UseProgram(Program);
+
+            Matrix4 vp_mat = Camera.VPMatrix;
+            if(prev_mat != vp_mat) {
+                GL.UniformMatrix4(Uniform(name), false, ref vp_mat);
+                prev_mat = vp_mat;
+            }
+
+        }
+    }
+
+    public enum DrawMode {
+        Vertex = 1, Edge = 2, Facet = 4, All = 7,
+    }
+
+    public class ScreenRenderer : RendererWithCamera {
+        string vertex_shader_source = @"
+        #version 330 core
+
+        uniform mat4 vp;
+
+        layout(location = 0) in vec4 position;
+        layout(location = 1) in vec4 info;
+
+        out float selected;
+
+        void main()
+        {
+            vec4 p = vec4(position.xyz, 1);
+            gl_Position = vp * p;
+            selected = info.x;
+        }";
+
+        string fragment_shader_source = @"
+        #version 330 core
+
+        uniform ivec4 mode;
+
+        in float selected;
+        out vec4 outColor;
+
+        void main()
+        {
+            if(mode.x == 3)
+                outColor = vec4(1.0, 1.0, 1.0, 1);
+            else if(mode.x == 2)
+                outColor = vec4(0.8, 0.8, 0.8, 1);
+            else if(mode.x == 1)
+                outColor = vec4(0.5, 0.5, 0.5, 1);
+            else
+                outColor = vec4(0, 0, 0, 1);
+
+            if(selected > 0.99) {
+                outColor.rgb = outColor.rgb * 0.3;
+                outColor.r = 1;
+            }
+        }";
+
+        public MeshGraph Model;
+
+        DrawMode Mode = DrawMode.All;
+
+        public ScreenRenderer()
+        {
+            SetSource(vertex_shader_source, "", fragment_shader_source);
+        }
+
+        public override void Render(RenderTarget rt) {
+            rt.Use();
+            GL.UseProgram(Program);
+            UpdateCamera("vp");
+
+            GL.Disable(EnableCap.CullFace);
+
+            GL.Enable(EnableCap.DepthTest);
+            if((Mode & DrawMode.Facet) != 0) {
+                GL.BindVertexArray(Model.FacetData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.FacetData.Count);
+            }
+
+            GL.Disable(EnableCap.DepthTest);
+            if((Mode & DrawMode.Edge) != 0) {
+                GL.BindVertexArray(Model.EdgeData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 2, 0, 0, 0);
+                GL.LineWidth(1);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+                GL.DrawArrays(BeginMode.Lines, 0, Model.EdgeData.Count);
+            }
+
+            if((Mode & DrawMode.Vertex) != 0) {
+                GL.BindVertexArray(Model.VertexData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 3, 0, 0, 0);
+                GL.PointSize(3);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
+                GL.DrawArrays(BeginMode.Points, 0, Model.VertexData.Count);
+            }
+        }
+    }
+
+    public class ControllerRenderer : RendererWithCamera {
         string vertex_shader_source = @"
         #version 330 core
 
         uniform mat4 vp;
 
         layout(location = 0) in vec4 positions;
-        layout(location = 1) in vec4 ctlInfo;
 
-        out vec3 edgeMark;
-        out vec3 edgeInfo;
-        out float pointInfo;
-        out float facetInfo;
-        out vec3 modelPos;
+        out float index;
 
         void main()
         {
-            edgeMark = clamp(ctlInfo.xyz, 0, 1);
-            edgeInfo = ctlInfo.xyz;
-            pointInfo = positions.w;
-            facetInfo = ctlInfo.w;
-
-            modelPos = positions.xyz;
             vec4 p = vec4(positions.xyz, 1);
+            gl_Position = vp * p;
+            index = positions.w;
+        }";
+
+        string fragment_shader_source = @"
+        #version 330 core
+
+        uniform ivec4 mode;
+
+        in float index;
+        out vec4 outColor;
+
+        void main()
+        {
+            outColor = vec4(round(index), mode.x, 0, 0);
+        }";
+
+        public MeshGraph Model;
+
+        DrawMode Mode = DrawMode.All;
+
+        public ControllerRenderer()
+        {
+            SetSource(vertex_shader_source, "", fragment_shader_source);
+        }
+
+        public override void Render(RenderTarget rt) {
+            rt.Use();
+            GL.UseProgram(Program);
+            UpdateCamera("vp");
+
+            GL.Disable(EnableCap.CullFace);
+
+            GL.Enable(EnableCap.DepthTest);
+            if((Mode & DrawMode.Facet) != 0) {
+                GL.BindVertexArray(Model.FacetData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                GL.DrawArrays(BeginMode.Triangles, 0, Model.FacetData.Count);
+            }
+
+            GL.Disable(EnableCap.DepthTest);
+            if((Mode & DrawMode.Edge) != 0) {
+                GL.BindVertexArray(Model.EdgeData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 2, 0, 0, 0);
+                GL.LineWidth(1);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+                GL.DrawArrays(BeginMode.Lines, 0, Model.EdgeData.Count);
+            }
+
+            if((Mode & DrawMode.Vertex) != 0) {
+                GL.BindVertexArray(Model.VertexData.GLAttrib);
+                GL.Uniform4(Uniform("mode"), 3, 0, 0, 0);
+                GL.PointSize(3);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
+                GL.DrawArrays(BeginMode.Points, 0, Model.VertexData.Count);
+            }
+        }
+    }
+
+    public class GridRenderer : RendererWithCamera {
+        MeshGraph grid;
+
+        string vertex_shader_source = @"
+        #version 330 core
+
+        uniform mat4 vp;
+
+        layout(location = 0) in vec4 position;
+
+        void main()
+        {
+            vec4 p = vec4(position.xyz, 1);
             gl_Position = vp * p;
         }";
 
         string fragment_shader_source = @"
         #version 330 core
 
-        in vec3 edgeMark;
-        in vec3 edgeInfo;
-        in float pointInfo;
-        in float facetInfo;
-        in vec3 modelPos;
-
-        #define SCR_POINT_MODE 0
-        #define SCR_EDGE_MODE 1
-        #define SCR_FACET_MODE 2
-        #define CTL_POINT_MODE 4
-        #define CTL_EDGE_MODE 5
-        #define CTL_FACET_MODE 6
-
-        uniform ivec4 mode;
-
         out vec4 outColor;
 
         void main()
         {
-            bool is_12 = edgeMark.x > 0.999;
-            bool is_23 = edgeMark.y > 0.999;
-            bool is_31 = edgeMark.z > 0.999;
-
-            if(!is_12 && !is_23 && !is_31) discard;
-
-            float c = 0;
-            if(mode.x == SCR_POINT_MODE) {
-                c = 1;
-            } else if(mode.x == SCR_EDGE_MODE) {
-                c = 0.6;
-            } else if(mode.x == CTL_POINT_MODE) {
-                c = pointInfo;
-            } else if(mode.x == CTL_EDGE_MODE) {
-                if(is_12) c = edgeInfo.x - 1;
-                if(is_23) c = edgeInfo.y - 1;
-                if(is_31) c = edgeInfo.z - 1;
-            }
-
-            outColor = vec4(c, c, c, 1);
+            outColor = vec4(0.3, 0.3, 0.3, 1);
         }";
 
-        public MeshFacetData Model;
-        private Transformation camera_tranformation;
-
-        public Transformation CameraTranformation {
-            get {
-                return camera_tranformation;
-            }
-            set {
-                GL.UseProgram(Program);
-                camera_tranformation = value;
-
-                GL.UseProgram(Program);
-
-                Matrix4 m = camera_tranformation.InverseMatrix;
-                m *= Matrix4.CreatePerspectiveFieldOfView(
-                        (float)Math.PI / 2, 1.333f, 1, 10);
-                GL.UniformMatrix4(Uniform("vp"), false, ref m);
-            }
-        }
-
-        public Renderer(MeshFacetData m)
-        {
+        public GridRenderer() {
             SetSource(vertex_shader_source, "", fragment_shader_source);
 
-            Model = m;
-            Model.UpdateData();
+            grid = new MeshGraph();
+            for(int i = -50; i < 50; i++) {
+                MeshVertex v1 = grid.AddVertex(i, 0, -50);
+                MeshVertex v2 = grid.AddVertex(i, 0, 50);
+                grid.AddEdge(v1, v2);
+            }
 
-            Transformation tf = new Transformation();
-            tf.Translate(0, 0, 5);
-            CameraTranformation = tf;
+            for(int i = -50; i < 50; i++) {
+                MeshVertex v1 = grid.AddVertex(-50, 0, i);
+                MeshVertex v2 = grid.AddVertex(50, 0, i);
+                grid.AddEdge(v1, v2);
+            }
+
+            grid.EdgeData.UpdateData();
         }
-
-        public const int ScreenMode = 0;
-        public const int ControlMode = 1;
-        public int Mode;
 
         public override void Render(RenderTarget rt) {
             rt.Use();
             GL.UseProgram(Program);
+            UpdateCamera("vp");
 
-            if(Mode == ScreenMode) {
-                GL.BindVertexArray(Model.GLAttrib);
-
-                GL.Disable(EnableCap.CullFace);
-                GL.Enable(EnableCap.DepthTest);
-                GL.Disable(EnableCap.DepthTest);
-                GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
-                GL.LineWidth(1);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
-
-                GL.Uniform4(Uniform("mode"), 0, 0, 0, 0);
-                GL.PointSize(3);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
-            } else if(Mode == ControlMode) {
-                GL.BindVertexArray(Model.GLAttrib);
-
-                GL.Disable(EnableCap.CullFace);
-                GL.Enable(EnableCap.DepthTest);
-                GL.Uniform4(Uniform("mode"), 5, 0, 0, 0);
-                GL.LineWidth(4);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
-
-                GL.Disable(EnableCap.DepthTest);
-                GL.Uniform4(Uniform("mode"), 4, 0, 0, 0);
-                GL.PointSize(5);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
-                GL.DrawArrays(BeginMode.Triangles, 0, Model.Count);
-            }
+            GL.Enable(EnableCap.DepthTest);
+            GL.BindVertexArray(grid.EdgeData.GLAttrib);
+            GL.LineWidth(1);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+            GL.DrawArrays(BeginMode.Lines, 0, grid.EdgeData.Count);
         }
     }
 
+    public class TranslationControllerScreenRenderer : RendererWithCamera {
+        MeshGraph arrow;
+
+        string vertex_shader_source = @"
+        #version 330 core
+
+        uniform mat4 vp;
+        uniform mat4 mMat;
+
+        layout(location = 0) in vec4 position;
+
+        void main()
+        {
+            vec4 p = vec4(position.xyz, 1);
+            gl_Position = vp * mMat * p;
+        }";
+
+        string fragment_shader_source = @"
+        #version 330 core
+
+        out vec4 outColor;
+        uniform vec4 color;
+
+        void main()
+        {
+            outColor = color;
+        }";
+
+        Matrix4[] arrowTfs;
+        Vector4[] arrowColors;
+
+        public Vector3 Position;
+
+        public TranslationControllerScreenRenderer() {
+            SetSource(vertex_shader_source, "", fragment_shader_source);
+
+            arrow = new MeshGraph();
+
+            MeshVertex vorg = arrow.AddVertex(0, 0, 0);
+            MeshVertex vhead = arrow.AddVertex(0, 0, -3);
+            MeshVertex vhead1 = arrow.AddVertex( 0.0625f,  0.0625f, -2.5f);
+            MeshVertex vhead2 = arrow.AddVertex(-0.0625f,  0.0625f, -2.5f);
+            MeshVertex vhead3 = arrow.AddVertex(-0.0625f, -0.0625f, -2.5f);
+            MeshVertex vhead4 = arrow.AddVertex( 0.0625f, -0.0625f, -2.5f);
+
+            arrow.AddEdge(vorg, vhead);
+            arrow.AddFacet(vhead1, vhead2, vhead);
+            arrow.AddFacet(vhead2, vhead3, vhead);
+            arrow.AddFacet(vhead3, vhead4, vhead);
+            arrow.AddFacet(vhead4, vhead1, vhead);
+
+            arrow.EdgeData.UpdateData();
+            arrow.FacetData.UpdateData();
+
+            //// initialization of other members
+            arrowTfs = new Matrix4[3];
+            arrowTfs[0] = Matrix4.Identity;
+            arrowTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
+            arrowTfs[2] = Matrix4.CreateRotationX((float)Math.PI / 2);
+
+            arrowColors = new Vector4[3];
+            arrowColors[0] = new Vector4(0, 0, 1, 1);
+            arrowColors[1] = new Vector4(1, 0, 0, 1);
+            arrowColors[2] = new Vector4(0, 1, 0, 1);
+
+            Position = new Vector3(0, 0, 0);
+        }
+
+        public override void Render(RenderTarget rt) {
+            rt.Use();
+            GL.UseProgram(Program);
+            UpdateCamera("vp");
+
+            GL.Disable(EnableCap.DepthTest);
+            GL.Disable(EnableCap.CullFace);
+
+            for(int i = 0; i < 3; i++) {
+                Matrix4 m = arrowTfs[i] * Matrix4.CreateTranslation(Position);
+                GL.UniformMatrix4(Uniform("mMat"), false, ref m);
+                GL.Uniform4(Uniform("color"), ref arrowColors[i]);
+
+                GL.BindVertexArray(arrow.EdgeData.GLAttrib);
+                GL.LineWidth(1);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+                GL.DrawArrays(BeginMode.Lines, 0, arrow.EdgeData.Count);
+
+                GL.BindVertexArray(arrow.FacetData.GLAttrib);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                GL.DrawArrays(BeginMode.Triangles, 0, arrow.FacetData.Count);
+            }
+        }
+    }
 }

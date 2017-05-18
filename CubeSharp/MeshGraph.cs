@@ -36,6 +36,17 @@ namespace CubeSharp
             set { position = value; }
         }
 
+        public bool Selected {
+            get { return Parent.SelectedVertices.Contains(this); }
+            set {
+                if(value) {
+                    Parent.SelectedVertices.Add(this);
+                } else {
+                    Parent.SelectedVertices.Remove(this);
+                }
+            }
+        }
+
         public MeshVertex() {
             adjacency = new Dictionary<MeshVertex, MeshEdge>();
             position = new Vector3(0, 0, 0);
@@ -87,6 +98,17 @@ namespace CubeSharp
         internal MeshFacet f1; // p1 -> p2
         internal MeshFacet f2; // p2 -> p1
 
+        public bool Selected {
+            get { return Parent.SelectedEdges.Contains(this); }
+            set {
+                if(value) {
+                    Parent.SelectedEdges.Add(this);
+                } else {
+                    Parent.SelectedEdges.Remove(this);
+                }
+            }
+        }
+
         public Tuple<MeshVertex, MeshVertex> VerticesInFacet(MeshFacet f) {
             if(f1 == f)
                 return new Tuple<MeshVertex, MeshVertex>(p1, p2);
@@ -132,6 +154,17 @@ namespace CubeSharp
     public class MeshFacet : MeshComponent {
         internal List<MeshVertex> vertices; // important: ordered
 
+        public bool Selected {
+            get { return Parent.SelectedFacets.Contains(this); }
+            set {
+                if(value) {
+                    Parent.SelectedFacets.Add(this);
+                } else {
+                    Parent.SelectedFacets.Remove(this);
+                }
+            }
+        }
+
         internal MeshFacet() {
             vertices = new List<MeshVertex>();
         }
@@ -173,7 +206,15 @@ namespace CubeSharp
         internal List<MeshVertex> vertices;
         internal List<MeshEdge> edges;
         internal List<MeshFacet> facets;
+
+        public HashSet<MeshVertex> SelectedVertices;
+        public HashSet<MeshEdge> SelectedEdges;
+        public HashSet<MeshFacet> SelectedFacets;
+
         private int triangles = 0;
+        public int TrianglesCount {
+            get { return triangles; }
+        }
 
         public List<MeshVertex> Vertices { get { return vertices; }}
         public List<MeshEdge> Edges { get { return edges; }}
@@ -184,8 +225,9 @@ namespace CubeSharp
             edges = new List<MeshEdge>();
             facets = new List<MeshFacet>();
 
-            attrib_format = new int[] {4, 4};
-            attrib_size = attrib_format.Sum();
+            SelectedVertices = new HashSet<MeshVertex>();
+            SelectedEdges = new HashSet<MeshEdge>();
+            SelectedFacets = new HashSet<MeshFacet>();
         }
 
         public MeshVertex AddVertex(float x, float y, float z) {
@@ -348,128 +390,46 @@ namespace CubeSharp
         }
 
         ////////////////////////////////////////////////////////////////////////
-        // OpenGL Relevant
 
-        private int gl_buffer = 0;
-        private int gl_buffer_size = 0;
-        private int gl_attrib = 0;
+        public void DeselectAll() {
+            SelectedVertices.Clear();
+            SelectedEdges.Clear();
+            SelectedFacets.Clear();
+        }
 
-        public int TrianglesCount { get { return triangles; } }
+        public void UpdateAll() {
+            VertexData.UpdateData();
+            EdgeData.UpdateData();
+            FacetData.UpdateData();
+        }
 
-        public int GLBuffer {
+        ////////////////////////////////////////////////////////////////////////
+        
+        MeshFacetData mfd;
+        MeshEdgeData med;
+        MeshVertexData mvd;
+
+        public MeshFacetData FacetData {
             get {
-                if(gl_buffer == 0)
-                    gl_buffer = GL.GenBuffer();
-
-                return gl_buffer;
+                if(mfd == null)
+                    mfd = new MeshFacetData(this);
+                return mfd;
             }
         }
 
-        public int GLAttrib {
+        public MeshEdgeData EdgeData {
             get {
-                if(gl_attrib == 0)
-                    gl_attrib = GL.GenVertexArray();
-
-                return gl_attrib;
+                if(med == null)
+                    med = new MeshEdgeData(this);
+                return med;
             }
         }
 
-        private void ReserveSpace(int size) {
-            Debug.Assert(size > 0, "Attempt to allocate invalid size of space");
-
-            if(gl_buffer_size < size) {
-                int log = (int) Math.Floor(Math.Log(size, 2)) + 1;
-                int new_size = (int) Math.Pow(2, log);
-
-                unsafe {
-                    GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
-                    GL.BufferData(BufferTarget.ArrayBuffer, new IntPtr(new_size),
-                            new IntPtr(null), BufferUsageHint.StaticDraw);
-                }
-            }
-        }
-
-        int[] attrib_format;
-        int attrib_size;
-
-        public void UpdateAttrib() {
-            GL.BindVertexArray(GLAttrib);
-            GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
-
-            int off = 0;
-
-            for(int i = 0; i < attrib_format.Length; i++) {
-                GL.EnableVertexAttribArray(i);
-                GL.VertexAttribPointer(i, attrib_format[i],
-                        VertexAttribPointerType.Float, true,
-                        attrib_size * sizeof(float), off * sizeof(float));
-                off += attrib_format[i];
-            }
-        }
-
-        public void UpdateBuffer() {
-            ReserveSpace(this.TrianglesCount * 3 * attrib_size * sizeof(float));
-
-            unsafe {
-                GL.BindBuffer(BufferTarget.ArrayBuffer, GLBuffer);
-                float* buf = (float*) GL.MapBuffer(
-                    BufferTarget.ArrayBuffer, BufferAccess.WriteOnly);
-
-                foreach(MeshFacet f in facets) {
-                    for(int i = 0; i < f.TrianglesCount; i++) {
-                        // Iteration Count: this.TrianglesCount
-
-                        MeshVertex v1 = f.vertices[0];
-                        MeshVertex v2 = f.vertices[i + 1];
-                        MeshVertex v3 = f.vertices[i + 2];
-                        MeshEdge e12 = v1.EdgeConnecting(v2);
-                        MeshEdge e23 = v2.EdgeConnecting(v3);
-                        MeshEdge e31 = v3.EdgeConnecting(v1);
-
-                        /*
-                        Console.WriteLine(v1.Position);
-                        Console.WriteLine(v2.Position);
-                        Console.WriteLine(v3.Position);
-                        */
-
-                        int[] edgeIdx = new int[] {
-                            e12 == null ? 0 : (e12.Index+1),
-                            e23 == null ? 0 : (e23.Index+1),
-                            e31 == null ? 0 : (e31.Index+1), };
-
-                        buf[0] = v1.Position[0];
-                        buf[1] = v1.Position[1];
-                        buf[2] = v1.Position[2];
-                        buf[3] = v1.Index;
-                        buf[4] = edgeIdx[0];
-                        buf[5] = 0;
-                        buf[6] = edgeIdx[2];
-                        buf[7] = f.Index;
-                        buf += attrib_size;
-
-                        buf[0] = v2.Position[0];
-                        buf[1] = v2.Position[1];
-                        buf[2] = v2.Position[2];
-                        buf[3] = v2.Index;
-                        buf[4] = edgeIdx[0];
-                        buf[5] = edgeIdx[1];
-                        buf[6] = 0;
-                        buf[7] = f.Index;
-                        buf += attrib_size;
-
-                        buf[0] = v3.Position[0];
-                        buf[1] = v3.Position[1];
-                        buf[2] = v3.Position[2];
-                        buf[3] = v3.Index;
-                        buf[4] = 0;
-                        buf[5] = edgeIdx[1];
-                        buf[6] = edgeIdx[2];
-                        buf[7] = f.Index;
-                        buf += attrib_size;
-                    }
-                }
-
-                GL.UnmapBuffer(BufferTarget.ArrayBuffer);
+        public MeshVertexData VertexData {
+            get {
+                if(mvd == null)
+                    mvd = new MeshVertexData(this);
+                return mvd;
             }
         }
     }
@@ -522,7 +482,8 @@ namespace CubeSharp
                         GL.EnableVertexAttribArray(i);
                         GL.VertexAttribPointer(i, layouts[i],
                                 VertexAttribPointerType.Float, true,
-                                layout_len * sizeof(float), off * sizeof(float));
+                                LayoutLength * sizeof(float),
+                                off * sizeof(float));
                         off += layouts[i];
                     }
                 }
@@ -569,10 +530,10 @@ namespace CubeSharp
         int current_layout = 0;
 
         protected void Seek(int pos) {
-            if(pos * layout_len * sizeof(float) >= gl_buffer_size)
+            if(pos * LayoutLength * sizeof(float) >= gl_buffer_size)
                 throw new Exception("Seek Out Bound");
 
-            offset = pos * LayoutLength * sizeof(float);
+            offset = pos * LayoutLength;
             current_layout = 0;
         }
 
@@ -582,12 +543,8 @@ namespace CubeSharp
                     throw new Exception("Did not start pushing.");
                 if(floatdata.Length != layouts[current_layout])
                     throw new Exception("No such layout.");
-                /*
-                if(sizeof(float) != 4)
-                    throw new Exception("Machine word length is not 4.");
-                */
 
-                float* ptr = (float*) data.ToPointer() + offset;
+                float* ptr = ((float*) data.ToPointer()) + offset;
                 for(int i = 0; i < floatdata.Length; i++) {
                     ptr[i] = floatdata[i];
                 }
@@ -604,7 +561,7 @@ namespace CubeSharp
 
         MeshGraph Mesh;
 
-        public MeshFacetData() : base(4, 4) { }
+        public MeshFacetData() : base(4, 1) { }
         public MeshFacetData(MeshGraph mg) : this() {
             Mesh = mg;
         }
@@ -619,54 +576,59 @@ namespace CubeSharp
                     MeshVertex v1 = f.vertices[0];
                     MeshVertex v2 = f.vertices[i + 1];
                     MeshVertex v3 = f.vertices[i + 2];
-                    MeshEdge e12 = v1.EdgeConnecting(v2);
-                    MeshEdge e23 = v2.EdgeConnecting(v3);
-                    MeshEdge e31 = v3.EdgeConnecting(v1);
 
-                    /*
-                       Console.WriteLine(v1.Position);
-                       Console.WriteLine(v2.Position);
-                       Console.WriteLine(v3.Position);
-                       */
+                    PushData(v1.Position[0], v1.Position[1], v1.Position[2], f.Index);
+                    PushData(f.Selected ? 1 : 0);
 
-                    int[] edgeIdx = new int[] {
-                        e12 == null ? 0 : (e12.Index+1),
-                            e23 == null ? 0 : (e23.Index+1),
-                            e31 == null ? 0 : (e31.Index+1), };
+                    PushData(v2.Position[0], v2.Position[1], v2.Position[2], f.Index);
+                    PushData(f.Selected ? 1 : 0);
 
-                    PushData(
-                        v1.Position[0],
-                        v1.Position[1],
-                        v1.Position[2],
-                        v1.Index);
-                    PushData(
-                        edgeIdx[0],
-                        0,
-                        edgeIdx[2],
-                        f.Index);
-
-                    PushData(
-                        v2.Position[0],
-                        v2.Position[1],
-                        v2.Position[2],
-                        v2.Index);
-                    PushData(
-                        edgeIdx[0],
-                        edgeIdx[1],
-                        0,
-                        f.Index);
-
-                    PushData(
-                        v3.Position[0],
-                        v3.Position[1],
-                        v3.Position[2],
-                        v3.Index);
-                    PushData(
-                        0,
-                        edgeIdx[1],
-                        edgeIdx[2],
-                        f.Index);
+                    PushData(v3.Position[0], v3.Position[1], v3.Position[2], f.Index);
+                    PushData(f.Selected ? 1 : 0);
                 }
+            }
+
+            StopPushing();
+        }
+    }
+
+    public class MeshEdgeData : MeshDataBase {
+        MeshGraph Mesh;
+
+        public MeshEdgeData() : base(4, 4) { }
+        public MeshEdgeData(MeshGraph mg) : this() {
+            Mesh = mg;
+        }
+
+        public override void UpdateData() {
+            StartPushing(Mesh.Edges.Count * 2);
+
+            foreach(MeshEdge e in Mesh.Edges) {
+                PushData(e.V1.Position[0], e.V1.Position[1], e.V1.Position[2], e.Index);
+                PushData(e.Selected ? 1 : 0, 0, 0, 0);
+
+                PushData(e.V2.Position[0], e.V2.Position[1], e.V2.Position[2], e.Index);
+                PushData(e.Selected ? 1 : 0, 0, 0, 0);
+            }
+
+            StopPushing();
+        }
+    }
+
+    public class MeshVertexData : MeshDataBase {
+        MeshGraph Mesh;
+
+        public MeshVertexData() : base(4, 4) { }
+        public MeshVertexData(MeshGraph mg) : this() {
+            Mesh = mg;
+        }
+
+        public override void UpdateData() {
+            StartPushing(Mesh.Vertices.Count);
+
+            foreach(MeshVertex v in Mesh.Vertices) {
+                PushData(v.Position[0], v.Position[1], v.Position[2], v.Index);
+                PushData(v.Selected ? 1 : 0, 0, 0, 0);
             }
 
             StopPushing();
