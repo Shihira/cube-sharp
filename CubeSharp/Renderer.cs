@@ -11,64 +11,84 @@ namespace CubeSharp
 {
     public class Transformation {
 
-        public void Translate(float x, float y, float z)
+        public void Translate(double x, double y, double z)
         {
-            matrix = Matrix4.CreateTranslation(x, y, z) * matrix;
-            inverse_matrix *= Matrix4.CreateTranslation(-x, -y, -z);
+            matrix = Matrix4d.CreateTranslation(x, y, z) * matrix;
+            inverse_matrix *= Matrix4d.CreateTranslation(-x, -y, -z);
         }
 
-        public void Translate(Vector3 tl)
+        public void Translate(Vector3d tl)
         {
-            matrix = Matrix4.CreateTranslation(tl) * matrix;
-            inverse_matrix *= Matrix4.CreateTranslation(-tl);
+            matrix = Matrix4d.CreateTranslation(tl) * matrix;
+            inverse_matrix *= Matrix4d.CreateTranslation(-tl);
         }
 
-        public void RotateX(float angle)
+        public void RotateX(double angle)
         {
-            matrix = Matrix4.CreateRotationX(angle) * matrix;
-            inverse_matrix *= Matrix4.CreateRotationX(-angle);
+            matrix = Matrix4d.CreateRotationX(angle) * matrix;
+            inverse_matrix *= Matrix4d.CreateRotationX(-angle);
         }
 
-        public void RotateY(float angle)
+        public void RotateY(double angle)
         {
-            matrix = Matrix4.CreateRotationY(angle) * matrix;
-            inverse_matrix *= Matrix4.CreateRotationY(-angle);
+            matrix = Matrix4d.CreateRotationY(angle) * matrix;
+            inverse_matrix *= Matrix4d.CreateRotationY(-angle);
         }
 
-        public void RotateZ(float angle)
+        public void RotateZ(double angle)
         {
-            matrix = Matrix4.CreateRotationZ(angle) * matrix;
-            inverse_matrix *= Matrix4.CreateRotationZ(-angle);
+            matrix = Matrix4d.CreateRotationZ(angle) * matrix;
+            inverse_matrix *= Matrix4d.CreateRotationZ(-angle);
         }
 
-        public void RotateAxis(Vector3 axis, float angle)
+        public void RotateAxis(Vector3d axis, double angle)
         {
-            matrix = Matrix4.CreateFromAxisAngle(axis, angle) * matrix;
-            inverse_matrix *= Matrix4.CreateFromAxisAngle(axis, -angle);
+            matrix = Matrix4d.CreateFromAxisAngle(axis, angle) * matrix;
+            inverse_matrix *= Matrix4d.CreateFromAxisAngle(axis, -angle);
         }
 
-        private Matrix4 matrix;
+        private Matrix4d matrix;
         public Matrix4 Matrix {
-            get {
-                return matrix;
-            }
+            get { return Matrix4dToMatrix4(matrix); }
+        }
+        public Matrix4d Matrixd {
+            get { return matrix; }
         }
 
-        private Matrix4 inverse_matrix;
+        private Matrix4d inverse_matrix;
         public Matrix4 InverseMatrix {
-            get {
-                return inverse_matrix;
-            }
+            get { return Matrix4dToMatrix4(inverse_matrix); }
+        }
+        public Matrix4d InverseMatrixd {
+            get { return inverse_matrix; }
         }
 
         public Transformation() {
-            matrix = Matrix4.Identity;
-            inverse_matrix = Matrix4.Identity;
+            matrix = Matrix4d.Identity;
+            inverse_matrix = Matrix4d.Identity;
         }
 
         public Transformation(Transformation other) {
-            matrix = other.matrix * Matrix4.Identity;
-            inverse_matrix = other.inverse_matrix * Matrix4.Identity;
+            matrix = other.matrix * Matrix4d.Identity;
+            inverse_matrix = other.inverse_matrix * Matrix4d.Identity;
+        }
+
+        static public Matrix4 Matrix4dToMatrix4(Matrix4d m) {
+            Matrix4 new_m = new Matrix4();
+            new_m.M11 = (float) m.M11; new_m.M12 = (float) m.M12; new_m.M13 = (float) m.M13; new_m.M14 = (float) m.M14;
+            new_m.M21 = (float) m.M21; new_m.M22 = (float) m.M22; new_m.M23 = (float) m.M23; new_m.M24 = (float) m.M24;
+            new_m.M31 = (float) m.M31; new_m.M32 = (float) m.M32; new_m.M33 = (float) m.M33; new_m.M34 = (float) m.M34;
+            new_m.M41 = (float) m.M41; new_m.M42 = (float) m.M42; new_m.M43 = (float) m.M43; new_m.M44 = (float) m.M44;
+            return new_m;
+        }
+
+        static public Matrix4d Matrix4ToMatrix4d(Matrix4 m) {
+            Matrix4d new_m = new Matrix4d();
+            new_m.M11 = m.M11; new_m.M12 = m.M12; new_m.M13 = m.M13; new_m.M14 = m.M14;
+            new_m.M21 = m.M21; new_m.M22 = m.M22; new_m.M23 = m.M23; new_m.M24 = m.M24;
+            new_m.M31 = m.M31; new_m.M32 = m.M32; new_m.M33 = m.M33; new_m.M34 = m.M34;
+            new_m.M41 = m.M41; new_m.M42 = m.M42; new_m.M43 = m.M43; new_m.M44 = m.M44;
+            return new_m;
         }
     }
 
@@ -258,6 +278,15 @@ namespace CubeSharp
                 return m;
             }
         }
+
+        public Matrix4d VPMatrixd {
+            get {
+                Matrix4d m = Tf.InverseMatrixd;
+                m *= Matrix4d.CreatePerspectiveFieldOfView(
+                        (float)Math.PI / 2, 1.333f, 0.1f, 100);
+                return m;
+            }
+        }
     }
 
     public abstract class RendererWithCamera : RendererBase {
@@ -374,15 +403,17 @@ namespace CubeSharp
 
         uniform mat4 vp;
 
-        layout(location = 0) in vec4 positions;
+        layout(location = 0) in vec4 position;
 
         out float index;
+        out float depth;
 
         void main()
         {
-            vec4 p = vec4(positions.xyz, 1);
+            vec4 p = vec4(position.xyz, 1);
             gl_Position = vp * p;
-            index = positions.w;
+            index = position.w;
+            depth = (gl_Position / gl_Position.w).z;
         }";
 
         string fragment_shader_source = @"
@@ -391,11 +422,12 @@ namespace CubeSharp
         uniform ivec4 mode;
 
         in float index;
+        in float depth;
         out vec4 outColor;
 
         void main()
         {
-            outColor = vec4(round(index), mode.x, 0, 0);
+            outColor = vec4(round(index), mode.x, depth, 0);
         }";
 
         public MeshGraph Model;
@@ -499,7 +531,7 @@ namespace CubeSharp
         }
     }
 
-    public class TranslationControllerScreenRenderer : RendererWithCamera {
+    public class TranslationControllerRenderer : RendererWithCamera {
         MeshGraph arrow;
 
         string vertex_shader_source = @"
@@ -510,29 +542,38 @@ namespace CubeSharp
 
         layout(location = 0) in vec4 position;
 
+        out float depth;
+
         void main()
         {
             vec4 p = vec4(position.xyz, 1);
             gl_Position = vp * mMat * p;
+            depth = (gl_Position / gl_Position.w).z;
         }";
 
         string fragment_shader_source = @"
         #version 330 core
 
+        in float depth;
         out vec4 outColor;
         uniform vec4 color;
+        uniform int screenMode;
 
         void main()
         {
-            outColor = color;
+            if(screenMode == 1)
+                outColor = color;
+            else
+                outColor = vec4(dot(vec4(1, 2, 3, 0), color), 4, depth, 0);
         }";
 
         Matrix4[] arrowTfs;
         Vector4[] arrowColors;
 
         public Vector3 Position;
+        public bool ScreenMode = false;
 
-        public TranslationControllerScreenRenderer() {
+        public TranslationControllerRenderer() {
             SetSource(vertex_shader_source, "", fragment_shader_source);
 
             arrow = new MeshGraph();
@@ -579,6 +620,7 @@ namespace CubeSharp
                 Matrix4 m = arrowTfs[i] * Matrix4.CreateTranslation(Position);
                 GL.UniformMatrix4(Uniform("mMat"), false, ref m);
                 GL.Uniform4(Uniform("color"), ref arrowColors[i]);
+                GL.Uniform1(Uniform("screenMode"), ScreenMode ? 1 : 0);
 
                 GL.BindVertexArray(arrow.EdgeData.GLAttrib);
                 GL.LineWidth(1);

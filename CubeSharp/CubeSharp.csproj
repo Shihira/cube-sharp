@@ -69,7 +69,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MainWindow.cs" />
-    <Compile Include="Mesh.cs" />
     <Compile Include="MeshFactory.cs" />
     <Compile Include="Renderer.cs" />
     <Compile Include="MeshGraph.cs" />

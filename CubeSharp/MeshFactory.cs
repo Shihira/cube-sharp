@@ -11,53 +11,6 @@ namespace CubeSharp
         public float Width = 2;
         public float Height = 2;
 
-        public Mesh GenerateMesh() {
-            Mesh m = new Mesh();
-
-            int[,] gray_code = new int[4,2] {{0,0}, {1,0}, {1,1}, {0,1}};
-            int[] tri_gc = new int[6] {0, 1, 2, 2, 3, 0};
-
-            for(int i = 0; i <= 1; i++)
-            for(int j = 0; j <= 1; j++)
-            for(int k = 0; k <= 1; k++)
-                m.PositionsStorage.Add(new Vector3(
-                    (i - 0.5f) * Length,
-                    (j - 0.5f) * Width,
-                    (k - 0.5f) * Height));
-
-            for(int i = 0; i < 4; i++)
-                m.UvsStorage.Add(new Vector2(
-                    (float)gray_code[i,0],
-                    (float)gray_code[i,1]));
-
-            for(int i = 0; i < 6; i++) {
-                int dir = i % 2;
-                int facet = i / 2;
-
-                // add normal
-                m.NormalsStorage.Add(new Vector3(0, 0, 0));
-                var nm = m.NormalsStorage[m.NormalsStorage.Count - 1];
-                nm[facet] = dir * 2 - 1;
-                m.NormalsStorage[m.NormalsStorage.Count - 1] = nm;
-
-                // add facet
-                for(int g_ = 0; g_ < 6; g_++) {
-                    int g = tri_gc[dir == 1 ? g_ : 5 - g_];
-                    int[] ijk = new int[3];
-
-                    ijk[facet] = dir;
-                    ijk[(facet + 1) % 3] = gray_code[g,0];
-                    ijk[(facet + 2) % 3] = gray_code[g,1];
-
-                    m.Positions.Indices.Add(ijk[0] << 2 | ijk[1] << 1 | ijk[2]);
-                    m.Normals.Indices.Add(i);
-                    m.Uvs.Indices.Add(g);
-                }
-            }
-
-            return m;
-        }
-
         public MeshGraph GenerateMeshGraph() {
             MeshGraph mg = new MeshGraph();
             float l = Length / 2 , w = Width / 2, h = Height / 2;
