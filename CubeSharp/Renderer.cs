@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
@@ -45,6 +46,12 @@ namespace CubeSharp
         {
             matrix = Matrix4d.CreateFromAxisAngle(axis, angle) * matrix;
             inverse_matrix *= Matrix4d.CreateFromAxisAngle(axis, -angle);
+        }
+
+        public void Scale(double s)
+        {
+            matrix *= Matrix4d.Scale(s);
+            inverse_matrix = Matrix4d.Scale(1 / s) * inverse_matrix;
         }
 
         private Matrix4d matrix;
@@ -97,10 +104,30 @@ namespace CubeSharp
         private int texture_color = -1;
         private int texture_depth = -1;
 
+        Size size;
+
+        public Size Size {
+            get { return size; }
+            set {
+                if(framebuffer > 0) {
+                    GL.DeleteFramebuffer(framebuffer);
+                    GL.DeleteTexture(texture_color);
+                    GL.DeleteTexture(texture_depth);
+
+                    framebuffer = -1;
+                    texture_color = -1;
+                    texture_depth = -1;
+                }
+
+                size = value;
+            }
+        }
+
         PixelType type;
 
-        public RenderTarget(PixelType t) {
+        public RenderTarget(PixelType t, Size sz) {
             type = t;
+            size = sz;
         }
 
         private void init() {
@@ -111,11 +138,11 @@ namespace CubeSharp
             GL.BindTexture(TextureTarget.Texture2D, texture_color);
             if(type == PixelType.Byte)
                 GL.TexImage2D(TextureTarget.Texture2D, 0,
-                        PixelInternalFormat.Rgba8, 800, 600, 0,
+                        PixelInternalFormat.Rgba8, size.Width, size.Height, 0,
                         PixelFormat.Rgba, PixelType.Byte, (IntPtr)0);
             else if(type == PixelType.Float)
                 GL.TexImage2D(TextureTarget.Texture2D, 0,
-                        PixelInternalFormat.Rgba32f, 800, 600, 0,
+                        PixelInternalFormat.Rgba32f, size.Width, size.Height, 0,
                         PixelFormat.Rgba, PixelType.Float, (IntPtr)0);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
@@ -123,7 +150,7 @@ namespace CubeSharp
 
             GL.BindTexture(TextureTarget.Texture2D, texture_depth);
             GL.TexImage2D(TextureTarget.Texture2D, 0,
-                    PixelInternalFormat.DepthComponent32f, 800, 600, 0,
+                    PixelInternalFormat.DepthComponent32f, size.Width, size.Height, 0,
                     PixelFormat.DepthComponent, PixelType.Float, (IntPtr)0);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
@@ -168,7 +195,7 @@ namespace CubeSharp
         static public RenderTarget Screen {
             get {
                 if(screen == null || screen.framebuffer != 0) {
-                    screen = new RenderTarget(PixelType.Byte);
+                    screen = new RenderTarget(PixelType.Byte, new Size(0, 0));
                     screen.framebuffer = 0;
                 }
 
@@ -266,6 +293,23 @@ namespace CubeSharp
     public class Camera {
         public Transformation Tf;
 
+        double view_angle = Math.PI / 2;
+        public double ViewAngle {
+            get { return view_angle; }
+            set {
+                if(value < Math.PI - 0.01)
+                    view_angle = value;
+                else
+                    view_angle = Math.PI - 0.01;
+            }
+        }
+
+        double ratio = 1;
+        public double Ratio {
+            get { return ratio; }
+            set { ratio = value; }
+        }
+
         public Camera() {
             Tf = new Transformation();
         }
@@ -274,7 +318,7 @@ namespace CubeSharp
             get {
                 Matrix4 m = Tf.InverseMatrix;
                 m *= Matrix4.CreatePerspectiveFieldOfView(
-                        (float)Math.PI / 2, 1.333f, 0.1f, 100);
+                        (float)ViewAngle, (float) ratio, 0.1f, 100);
                 return m;
             }
         }
@@ -283,7 +327,7 @@ namespace CubeSharp
             get {
                 Matrix4d m = Tf.InverseMatrixd;
                 m *= Matrix4d.CreatePerspectiveFieldOfView(
-                        (float)Math.PI / 2, 1.333f, 0.1f, 100);
+                        (float)ViewAngle, ratio, 0.1f, 100);
                 return m;
             }
         }

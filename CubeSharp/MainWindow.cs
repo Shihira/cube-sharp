@@ -9,8 +9,6 @@ namespace CubeSharp
 {
     public class MainWindow : Form
     {
-        GLControl glc;
-
         // Attrib
         MeshGraph msh;
         // Uniform
@@ -24,31 +22,49 @@ namespace CubeSharp
         ControllerRenderer crdr;
         TranslationControllerRenderer tcrdr;
 
+        GLControl glc;
+        FuncPanel func_panel;
+        Timer timer;
+
         public MainWindow()
         {
-            Text = "Simple";
-            Size = new Size(900, 600);
-            CenterToScreen();
-           
-            glc = new GLControl(new GraphicsMode(32, 24, 0, 4),
-                    3, 3, GraphicsContextFlags.Default);
-            glc.Location = new Point(0, 0);
-            glc.Size = Size - new Size(100, 0);
+            Fake_InitializeComponent();
+        }
+
+        private void Fake_InitializeComponent()
+        {
+            glc = new GLControl(GraphicsMode.Default, 3, 3, GraphicsContextFlags.Default);
+            func_panel = new FuncPanel();
+            timer = new Timer();
+
+            timer.Tick += (o, e) => glc.Invalidate();
+            timer.Interval = 16;
+            timer.Start();
+
+            glc.Name = "glc";
             glc.VSync = true;
             glc.Paint += glc_Paint;
             glc.MouseMove += glc_MouseMove;
             glc.MouseUp += glc_MouseUp;
             glc.MouseDown += glc_MouseDown;
+            glc.MouseWheel += glc_MouseWheel;
+            glc.KeyDown += glc_KeyUp;
+            glc.KeyUp += glc_KeyDown;
+            glc.TabIndex = 0;
 
+            Text = "CubeSharp";
+            Name = "CubeSharp";
+            Size = new Size(800, 600);
+            Font = new Font("sans", 10);
+
+            this.Load += CubeSharp_Load;
+            this.Resize += CubeSharp_Resize;
             Controls.Add(glc);
+            Controls.Add(func_panel);
         }
 
-        protected override void OnLoad(EventArgs e)
+        private void CubeSharp_Load(object sender, EventArgs e)
         {
-            base.OnLoad(e);
-
-            OnResize(null);
-
             Console.WriteLine(GL.GetString(StringName.Version));
 
             msh = new BoxMeshFactory().GenerateMeshGraph();
@@ -57,7 +73,7 @@ namespace CubeSharp
             tcrdr = new TranslationControllerRenderer();
             crdr = new ControllerRenderer();
             cam = new Camera();
-            ctl = new RenderTarget(PixelType.Float);
+            ctl = new RenderTarget(PixelType.Float, Viewport);
 
             msh.EdgeData.UpdateData();
             msh.VertexData.UpdateData();
@@ -70,19 +86,25 @@ namespace CubeSharp
             crdr.Model = msh;
             grdr.Camera = cam;
             tcrdr.Camera = cam;
+
+            CubeSharp_Resize(null, null);
         }
 
-        protected override void OnResize(EventArgs e)
+        private void CubeSharp_Resize(object sender, EventArgs e)
         {
-            if (glc != null) {
-                glc.Size = Size - new Size(100, 0);
-            }
+            glc.Location = new Point(0, 0);
+            glc.Size = ClientSize - new Size(225, 0);
+            func_panel.Location = glc.Location + new Size(glc.Size.Width, 0);
+            func_panel.Size = new Size(225, glc.Size.Height);
+
+            ctl.Size = Viewport;
+            cam.Ratio = Viewport.Width / (double) Viewport.Height;
         }
 
         private void glc_Paint(object sender, EventArgs e)
         {
             glc.MakeCurrent();
-            GL.Viewport(0, 0, 800, 600);
+            GL.Viewport(0, 0, Viewport.Width, Viewport.Height);
 
             ////////////////////////////////////
             RenderTarget.Screen.Use();
@@ -96,7 +118,9 @@ namespace CubeSharp
 
             grdr.Render(RenderTarget.Screen);
             srdr.Render(RenderTarget.Screen);
-            tcrdr.Render(RenderTarget.Screen);
+            if(msh.SelectedVertices.Count > 0) {
+                tcrdr.Render(RenderTarget.Screen);
+            }
 
             ////////////////////////////////////
             ctl.Use();
@@ -109,8 +133,9 @@ namespace CubeSharp
             tcrdr.ScreenMode = false;
 
             crdr.Render(ctl);
-            tcrdr.Render(ctl);
-            //crdr.Render(RenderTarget.Screen);
+            if(msh.SelectedVertices.Count > 0) {
+                tcrdr.Render(ctl);
+            }
 
             glc.SwapBuffers();
         }
@@ -119,13 +144,18 @@ namespace CubeSharp
             None,
             CameraRotation,
             CameraTranslation,
-            TranslationController,
+            TranslationController
+        }
+
+        public Size Viewport {
+            get { return glc.Size; }
         }
 
         private DragState drag_state;
         private Transformation prev_tf;
         private int prev_x;
         private int prev_y;
+        private bool shift_down;
         private int tc_axis;
         private float tc_prev_dis;
         private Vector3d prev_insc;
@@ -147,16 +177,12 @@ namespace CubeSharp
                 tf.RotateX(-delta_y * (float)Math.PI / 360);
                 tf.Translate(0, 0, 5);
                 cam.Tf = tf;
-
-                glc.Invalidate();
             }
 
             if(drag_state == DragState.CameraTranslation) {
                 Transformation tf = new Transformation(prev_tf);
                 tf.Translate(-delta_x / 120.0f, delta_y / 120.0f, 0);
                 cam.Tf = tf;
-
-                glc.Invalidate();
             }
 
             if(drag_state == DragState.TranslationController) {
@@ -189,8 +215,15 @@ namespace CubeSharp
                 tcrdr.Position = avg;
 
                 msh.UpdateAll();
+            }
+        }
 
-                glc.Invalidate();
+        private void glc_MouseWheel(Object sender, MouseEventArgs e)
+        {
+            if(e.Delta > 0) {
+                cam.Tf.Scale(0.95);
+            } else {
+                cam.Tf.Scale(1.05);
             }
         }
 
@@ -214,42 +247,43 @@ namespace CubeSharp
             }
 
             if(e.Button == MouseButtons.Left) {
-                float[,,] buf = new float[600, 800, 4];
+                float[,,] buf = new float[Viewport.Height, Viewport.Width, 4];
 
-                unsafe {
-                    fixed(float* pbuf = buf) {
-                        GL.BindTexture(TextureTarget.Texture2D,
-                                ctl.TextureColor);
-                        GL.GetTexImage(TextureTarget.Texture2D, 0,
-                                PixelFormat.Rgba, PixelType.Float,
-                                new IntPtr((void*) pbuf));
-                    }
-                }
+                GL.BindTexture(TextureTarget.Texture2D, ctl.TextureColor);
+                GL.GetTexImage(TextureTarget.Texture2D, 0,
+                        PixelFormat.Rgba, PixelType.Float, buf);
 
-                int d1 = 600 - 1 - e.Y, d2 = e.X;
-                int res1 = 0, res2 = 0, offsetx = -3, offsety = -3;
+                double hfw = Viewport.Width / 2.0;
+                double hfh = Viewport.Height / 2.0;
+                int clicky = Viewport.Height - 1 - e.Y, clickx = e.X;
+
+                int index = 0,
+                    type = 0,
+                    offx = -3,
+                    offy = -3;
                 float depth = 0;
+
                 for(int i = -3; i <= 3; i++)
                 for(int j = -3; j <= 3; j++) {
-                    int D1 = d1 + i, D2 = d2 + j;
+                    int Y = clicky + i, X = clickx + j;
 
-                    if(buf[D1, D2, 1] > res2 &&
-                            offsetx * offsetx + offsety * offsety > i*i + j*j) {
-                        res1 = (int) buf[D1, D2, 0];
-                        res2 = (int) buf[D1, D2, 1];
-                        depth = buf[D1, D2, 2];
-                        offsetx = j;
-                        offsety = i;
+                    if(buf[Y, X, 1] > type && offx * offx + offy * offy > i*i + j*j) {
+                        index = (int) buf[Y, X, 0];
+                        type = (int) buf[Y, X, 1];
+                        depth = buf[Y, X, 2];
+
+                        offy = i;
+                        offx = j;
                     }
                 }
 
-                Console.WriteLine(res1 + ", " + res2 + ", " + depth);
+                //Console.WriteLine(index + ", " + type + ", " + depth);
 
-                if(res2 != 0) {
+                if(type != 0) {
                     Vector4d film_pos = Vector4d.Transform(
                             new Vector4d(
-                                (offsetx + d2) / 400.0 - 1,
-                                (offsety + d1) / 300.0 - 1,
+                                (offx + clickx) / hfw - 1,
+                                (offy + clicky) / hfh - 1,
                                 depth, 1),
                             cam.VPMatrixd.Inverted());
                     film_pos /= film_pos.W;
@@ -259,36 +293,33 @@ namespace CubeSharp
                     Console.WriteLine(film_pos.Xyz);
                 }
 
-                if(res2 == 4) {
+                if(type == 4) {
                     drag_state = DragState.TranslationController;
-                    tc_axis = res1;
+                    tc_axis = index;
                     tc_prev_dis = 0;
-                } else if(res2 == 3) {
-                    msh.DeselectAll();
-                    msh.Vertices[res1].Selected = true;
-                    msh.UpdateAll();
+                } else if(type == 3) {
+                    if(!shift_down) msh.DeselectAll();
 
-                    tcrdr.Position = msh.Vertices[res1].Position;
+                    msh.Vertices[index].Selected = true;
 
-                    glc.Invalidate();
-                } else if(res2 == 2) {
-                    msh.DeselectAll();
-                    msh.Edges[res1].Selected = true;
-                    msh.Edges[res1].V1.Selected = true;
-                    msh.Edges[res1].V2.Selected = true;
+                    tcrdr.Position = msh.Vertices[index].Position;
+                } else if(type == 2) {
+                    if(!shift_down) msh.DeselectAll();
 
-                    tcrdr.Position = (msh.Edges[res1].V1.Position +
-                        msh.Edges[res1].V2.Position) / 2;
+                    msh.Edges[index].Selected = true;
+                    msh.Edges[index].V1.Selected = true;
+                    msh.Edges[index].V2.Selected = true;
 
-                    msh.UpdateAll();
-                    glc.Invalidate();
-                } else if(res2 == 1) {
-                    msh.DeselectAll();
-                    msh.Facets[res1].Selected = true;
+                    tcrdr.Position = (msh.Edges[index].V1.Position +
+                        msh.Edges[index].V2.Position) / 2;
+                } else if(type == 1) {
+                    if(!shift_down) msh.DeselectAll();
+
+                    msh.Facets[index].Selected = true;
 
                     Vector3 avg = new Vector3(0, 0, 0);
                     float count = 0;
-                    foreach(MeshEdge fe in msh.Facets[res1].Edges) {
+                    foreach(MeshEdge fe in msh.Facets[index].Edges) {
                         fe.Selected = true;
                         fe.V1.Selected = true;
                         fe.V2.Selected = true;
@@ -298,11 +329,20 @@ namespace CubeSharp
                     }
                     avg /= count;
                     tcrdr.Position = avg;
-
-                    msh.UpdateAll();
-                    glc.Invalidate();
+                } else {
+                    if(!shift_down) msh.DeselectAll();
                 }
+
+                msh.UpdateAll();
             }
+        }
+
+        protected void glc_KeyDown(Object sender, KeyEventArgs e) {
+            shift_down = e.Shift;
+        }
+
+        protected void glc_KeyUp(Object sender, KeyEventArgs e) {
+            shift_down = e.Shift;
         }
 
         static public void Main(string[] args)
