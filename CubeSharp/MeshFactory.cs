@@ -11,8 +11,7 @@ namespace CubeSharp
         public float Width = 2;
         public float Height = 2;
 
-        public MeshGraph GenerateMeshGraph() {
-            MeshGraph mg = new MeshGraph();
+        public void AddMeshGraphUpon(ref MeshGraph mg, bool selected = true) {
             float l = Length / 2 , w = Width / 2, h = Height / 2;
 
             MeshVertex v0 = mg.AddVertex( l,  h,  w);
@@ -31,6 +30,17 @@ namespace CubeSharp
             mg.AddFacet(v0, v4, v6, v2);
             mg.AddFacet(v3, v7, v5, v1);
 
+            if(selected) {
+                v0.Selected = true; v1.Selected = true;
+                v2.Selected = true; v3.Selected = true;
+                v4.Selected = true; v5.Selected = true;
+                v6.Selected = true; v7.Selected = true;
+            }
+        }
+
+        public MeshGraph GenerateMeshGraph() {
+            MeshGraph mg = new MeshGraph();
+            AddMeshGraphUpon(ref mg, false);
             return mg;
         }
     }

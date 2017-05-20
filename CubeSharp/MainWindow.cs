@@ -7,10 +7,16 @@ using OpenTK.Graphics.OpenGL;
 
 namespace CubeSharp
 {
+    public enum ControllerType {
+        Translation,
+        Scaling,
+        Rotation,
+    }
+
     public class MainWindow : Form
     {
         // Attrib
-        MeshGraph msh;
+        public MeshGraph Model;
         // Uniform
         Camera cam;
         // Output
@@ -45,12 +51,18 @@ namespace CubeSharp
             glc.VSync = true;
             glc.Paint += glc_Paint;
             glc.MouseMove += glc_MouseMove;
+            glc.MouseMove += (o, e) => glc.Focus();
             glc.MouseUp += glc_MouseUp;
             glc.MouseDown += glc_MouseDown;
             glc.MouseWheel += glc_MouseWheel;
-            glc.KeyDown += glc_KeyUp;
-            glc.KeyUp += glc_KeyDown;
+            glc.KeyDown += ModifierKeyDown;
+            glc.KeyUp += ModifierKeyUp;
             glc.TabIndex = 0;
+
+            func_panel.MouseMove += (o, e) => func_panel.Focus();
+            func_panel.ParentWindow = this;
+            func_panel.KeyDown += ModifierKeyDown;
+            func_panel.KeyUp += ModifierKeyUp;
 
             Text = "CubeSharp";
             Name = "CubeSharp";
@@ -67,7 +79,7 @@ namespace CubeSharp
         {
             Console.WriteLine(GL.GetString(StringName.Version));
 
-            msh = new BoxMeshFactory().GenerateMeshGraph();
+            Model = new BoxMeshFactory().GenerateMeshGraph();
             srdr = new ScreenRenderer();
             grdr = new GridRenderer();
             tcrdr = new TranslationControllerRenderer();
@@ -75,15 +87,17 @@ namespace CubeSharp
             cam = new Camera();
             ctl = new RenderTarget(PixelType.Float, Viewport);
 
-            msh.EdgeData.UpdateData();
-            msh.VertexData.UpdateData();
-            msh.FacetData.UpdateData();
+            Model.EdgeData.UpdateData();
+            Model.VertexData.UpdateData();
+            Model.FacetData.UpdateData();
+            cam.Tf.RotateY(-Math.PI / 6);
+            cam.Tf.RotateX(-Math.PI / 6);
             cam.Tf.Translate(0, 0, 5);
 
             srdr.Camera = cam;
-            srdr.Model = msh;
+            srdr.Model = Model;
             crdr.Camera = cam;
-            crdr.Model = msh;
+            crdr.Model = Model;
             grdr.Camera = cam;
             tcrdr.Camera = cam;
 
@@ -118,8 +132,16 @@ namespace CubeSharp
 
             grdr.Render(RenderTarget.Screen);
             srdr.Render(RenderTarget.Screen);
-            if(msh.SelectedVertices.Count > 0) {
-                tcrdr.Render(RenderTarget.Screen);
+
+            if(Model.SelectedVertices.Count > 0) {
+                if(ControllerType == ControllerType.Translation) {
+                    tcrdr.ControllerType = ControllerType.Translation;
+                    tcrdr.Render(RenderTarget.Screen);
+                }
+                if(ControllerType == ControllerType.Scaling) {
+                    tcrdr.ControllerType = ControllerType.Scaling;
+                    tcrdr.Render(RenderTarget.Screen);
+                }
             }
 
             ////////////////////////////////////
@@ -133,8 +155,16 @@ namespace CubeSharp
             tcrdr.ScreenMode = false;
 
             crdr.Render(ctl);
-            if(msh.SelectedVertices.Count > 0) {
-                tcrdr.Render(ctl);
+
+            if(Model.SelectedVertices.Count > 0) {
+                if(ControllerType == ControllerType.Translation) {
+                    tcrdr.ControllerType = ControllerType.Translation;
+                    tcrdr.Render(ctl);
+                }
+                if(ControllerType == ControllerType.Scaling) {
+                    tcrdr.ControllerType = ControllerType.Scaling;
+                    tcrdr.Render(ctl);
+                }
             }
 
             glc.SwapBuffers();
@@ -144,15 +174,16 @@ namespace CubeSharp
             None,
             CameraRotation,
             CameraTranslation,
-            TranslationController
+            Controller,
         }
 
         public Size Viewport {
             get { return glc.Size; }
         }
 
-        private DragState drag_state;
-        private Transformation prev_tf;
+        private DragState drag_state = DragState.None;
+        public ControllerType ControllerType = ControllerType.Translation;
+        public Transformation prev_tf;
         private int prev_x;
         private int prev_y;
         private bool shift_down;
@@ -185,7 +216,8 @@ namespace CubeSharp
                 cam.Tf = tf;
             }
 
-            if(drag_state == DragState.TranslationController) {
+            if(drag_state == DragState.Controller) {
+
                 Vector3 v = tcrdr.Position;
                 Vector4 scr_org = Vector4.Transform(
                         new Vector4(
@@ -200,21 +232,47 @@ namespace CubeSharp
                 Vector2 dir = (scr_end - scr_org).Normalized().Xy;
                 float dis = Vector2.Dot(new Vector2(
                     delta_x, -delta_y), dir); 
-                dis /= 50;
 
-                Vector3 avg = new Vector3(0, 0, 0);
-                foreach(MeshVertex mv in msh.SelectedVertices) {
-                    Vector3 pos = mv.Position;
-                    pos[tc_axis - 1] += dis - tc_prev_dis;
-                    mv.Position = pos;
-                    avg += pos;
+                Console.WriteLine(dis);
+
+                if(ControllerType == ControllerType.Translation) {
+                    float tl = dis / 50;
+                    float prev_tl = tc_prev_dis / 50;
+
+                    Vector3 avg = new Vector3(0, 0, 0);
+                    foreach(MeshVertex mv in Model.SelectedVertices) {
+                        Vector3 pos = mv.Position;
+                        pos[tc_axis - 1] += tl - prev_tl;
+                        mv.Position = pos;
+                        avg += pos;
+                    }
+                    avg /= Model.SelectedVertices.Count;
+
+                    tcrdr.Position = avg;
                 }
-                avg /= msh.SelectedVertices.Count;
+
+                if(ControllerType == ControllerType.Scaling) {
+                    float sl = dis / 100;
+                    float prev_sl = tc_prev_dis / 100;
+
+                    Vector3 avg = new Vector3(0, 0, 0);
+                    foreach(MeshVertex mv in Model.SelectedVertices)
+                        avg += mv.Position;
+                    avg /= Model.SelectedVertices.Count;
+
+                    foreach(MeshVertex mv in Model.SelectedVertices) {
+                        Vector3 pos = mv.Position;
+                        float delta = pos[tc_axis - 1] - avg[tc_axis - 1];
+                        float scaled_delta = delta / (1 + prev_sl) * (1 + sl);
+                        pos[tc_axis - 1] += scaled_delta - delta;
+                        mv.Position = pos;
+                    }
+
+                    tcrdr.Position = avg;
+                }
 
                 tc_prev_dis = dis;
-                tcrdr.Position = avg;
-
-                msh.UpdateAll();
+                Model.UpdateAll();
             }
         }
 
@@ -294,32 +352,38 @@ namespace CubeSharp
                 }
 
                 if(type == 4) {
-                    drag_state = DragState.TranslationController;
+                    drag_state = DragState.Controller;
+                    ControllerType = ControllerType.Translation;
+                    tc_axis = index;
+                    tc_prev_dis = 0;
+                } else if(type == 5) {
+                    drag_state = DragState.Controller;
+                    ControllerType = ControllerType.Scaling;
                     tc_axis = index;
                     tc_prev_dis = 0;
                 } else if(type == 3) {
-                    if(!shift_down) msh.DeselectAll();
+                    if(!shift_down) Model.DeselectAll();
 
-                    msh.Vertices[index].Selected = true;
+                    Model.Vertices[index].Selected = true;
 
-                    tcrdr.Position = msh.Vertices[index].Position;
+                    tcrdr.Position = Model.Vertices[index].Position;
                 } else if(type == 2) {
-                    if(!shift_down) msh.DeselectAll();
+                    if(!shift_down) Model.DeselectAll();
 
-                    msh.Edges[index].Selected = true;
-                    msh.Edges[index].V1.Selected = true;
-                    msh.Edges[index].V2.Selected = true;
+                    Model.Edges[index].Selected = true;
+                    Model.Edges[index].V1.Selected = true;
+                    Model.Edges[index].V2.Selected = true;
 
-                    tcrdr.Position = (msh.Edges[index].V1.Position +
-                        msh.Edges[index].V2.Position) / 2;
+                    tcrdr.Position = (Model.Edges[index].V1.Position +
+                        Model.Edges[index].V2.Position) / 2;
                 } else if(type == 1) {
-                    if(!shift_down) msh.DeselectAll();
+                    if(!shift_down) Model.DeselectAll();
 
-                    msh.Facets[index].Selected = true;
+                    Model.Facets[index].Selected = true;
 
                     Vector3 avg = new Vector3(0, 0, 0);
                     float count = 0;
-                    foreach(MeshEdge fe in msh.Facets[index].Edges) {
+                    foreach(MeshEdge fe in Model.Facets[index].Edges) {
                         fe.Selected = true;
                         fe.V1.Selected = true;
                         fe.V2.Selected = true;
@@ -330,18 +394,18 @@ namespace CubeSharp
                     avg /= count;
                     tcrdr.Position = avg;
                 } else {
-                    if(!shift_down) msh.DeselectAll();
+                    if(!shift_down) Model.DeselectAll();
                 }
 
-                msh.UpdateAll();
+                Model.UpdateAll();
             }
         }
 
-        protected void glc_KeyDown(Object sender, KeyEventArgs e) {
+        protected void ModifierKeyDown(Object sender, KeyEventArgs e) {
             shift_down = e.Shift;
         }
 
-        protected void glc_KeyUp(Object sender, KeyEventArgs e) {
+        protected void ModifierKeyUp(Object sender, KeyEventArgs e) {
             shift_down = e.Shift;
         }
 

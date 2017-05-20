@@ -243,6 +243,7 @@ namespace CubeSharp
 
         public void RemoveVertex(MeshVertex v) {
             int i = v.Index;
+            if(vertices[i] != v) return;
 
             if(i != vertices.Count - 1) {
                 vertices[i] = vertices.Last();
@@ -250,6 +251,7 @@ namespace CubeSharp
             }
 
             vertices.RemoveAt(vertices.Count - 1);
+            v.Selected = false;
             v.ClearAdjacency();
         }
 
@@ -269,6 +271,7 @@ namespace CubeSharp
 
         public void RemoveEdge(MeshEdge e) {
             int i = e.Index;
+            if(edges[i] != e) return;
 
             if(i != edges.Count - 1) {
                 edges[i] = edges.Last();
@@ -276,6 +279,7 @@ namespace CubeSharp
             }
 
             edges.RemoveAt(edges.Count - 1);
+            e.Selected = false;
             e.ClearAdjacency();
             e.p1.adjacency.Remove(e.p2);
             e.p2.adjacency.Remove(e.p1);
@@ -314,6 +318,7 @@ namespace CubeSharp
 
         public void RemoveFacet(MeshFacet f) {
             int i = f.Index;
+            if(facets[i] != f) return;
 
             triangles -= f.TrianglesCount;
 
@@ -323,6 +328,7 @@ namespace CubeSharp
             }
 
             facets.RemoveAt(facets.Count - 1);
+            f.Selected = false;
             foreach(MeshEdge e in f.Edges) {
                 if(e.f1 == f)
                     e.f1 = null;

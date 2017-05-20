@@ -577,6 +577,7 @@ namespace CubeSharp
 
     public class TranslationControllerRenderer : RendererWithCamera {
         MeshGraph arrow;
+        MeshGraph arrow_cube;
 
         string vertex_shader_source = @"
         #version 330 core
@@ -601,14 +602,14 @@ namespace CubeSharp
         in float depth;
         out vec4 outColor;
         uniform vec4 color;
-        uniform int screenMode;
+        uniform ivec2 mode;
 
         void main()
         {
-            if(screenMode == 1)
+            if(mode.x == 1)
                 outColor = color;
             else
-                outColor = vec4(dot(vec4(1, 2, 3, 0), color), 4, depth, 0);
+                outColor = vec4(dot(vec4(1, 2, 3, 0), color), mode.y, depth, 0);
         }";
 
         Matrix4[] arrowTfs;
@@ -616,18 +617,21 @@ namespace CubeSharp
 
         public Vector3 Position;
         public bool ScreenMode = false;
+        public ControllerType ControllerType = ControllerType.Translation;
 
         public TranslationControllerRenderer() {
             SetSource(vertex_shader_source, "", fragment_shader_source);
 
             arrow = new MeshGraph();
+            arrow_cube = new MeshGraph();
 
+            //// initialize arrow
             MeshVertex vorg = arrow.AddVertex(0, 0, 0);
-            MeshVertex vhead = arrow.AddVertex(0, 0, -3);
-            MeshVertex vhead1 = arrow.AddVertex( 0.0625f,  0.0625f, -2.5f);
-            MeshVertex vhead2 = arrow.AddVertex(-0.0625f,  0.0625f, -2.5f);
-            MeshVertex vhead3 = arrow.AddVertex(-0.0625f, -0.0625f, -2.5f);
-            MeshVertex vhead4 = arrow.AddVertex( 0.0625f, -0.0625f, -2.5f);
+            MeshVertex vhead = arrow.AddVertex(0, 0, 3);
+            MeshVertex vhead1 = arrow.AddVertex( 0.0625f,  0.0625f, 2.5f);
+            MeshVertex vhead2 = arrow.AddVertex(-0.0625f,  0.0625f, 2.5f);
+            MeshVertex vhead3 = arrow.AddVertex(-0.0625f, -0.0625f, 2.5f);
+            MeshVertex vhead4 = arrow.AddVertex( 0.0625f, -0.0625f, 2.5f);
 
             arrow.AddEdge(vorg, vhead);
             arrow.AddFacet(vhead1, vhead2, vhead);
@@ -638,11 +642,24 @@ namespace CubeSharp
             arrow.EdgeData.UpdateData();
             arrow.FacetData.UpdateData();
 
+            //// initialize arrow_cube
+            BoxMeshFactory mf = new BoxMeshFactory();
+            mf.Length = 0.1f; mf.Width = 0.1f; mf.Height = 0.1f;
+            mf.AddMeshGraphUpon(ref arrow_cube, false);
+            foreach(MeshVertex v in arrow_cube.Vertices)
+                v.Position = v.Position + new Vector3(0, 0, 3);
+
+            vorg = arrow.AddVertex(0, 0, 0);
+            vhead = arrow.AddVertex(0, 0, 3);
+            arrow_cube.AddEdge(vorg, vhead);
+            arrow_cube.EdgeData.UpdateData();
+            arrow_cube.FacetData.UpdateData();
+
             //// initialization of other members
             arrowTfs = new Matrix4[3];
             arrowTfs[0] = Matrix4.Identity;
             arrowTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
-            arrowTfs[2] = Matrix4.CreateRotationX((float)Math.PI / 2);
+            arrowTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
 
             arrowColors = new Vector4[3];
             arrowColors[0] = new Vector4(0, 0, 1, 1);
@@ -660,20 +677,29 @@ namespace CubeSharp
             GL.Disable(EnableCap.DepthTest);
             GL.Disable(EnableCap.CullFace);
 
+            MeshGraph data;
+            if(ControllerType == ControllerType.Translation)
+                data = arrow;
+            else if(ControllerType == ControllerType.Scaling)
+                data = arrow_cube;
+            else
+                throw new Exception("Cannot render this type.");
+
             for(int i = 0; i < 3; i++) {
                 Matrix4 m = arrowTfs[i] * Matrix4.CreateTranslation(Position);
                 GL.UniformMatrix4(Uniform("mMat"), false, ref m);
                 GL.Uniform4(Uniform("color"), ref arrowColors[i]);
-                GL.Uniform1(Uniform("screenMode"), ScreenMode ? 1 : 0);
+                GL.Uniform2(Uniform("mode"), ScreenMode ? 1 : 0,
+                    ControllerType == ControllerType.Translation ? 4 : 5);
 
-                GL.BindVertexArray(arrow.EdgeData.GLAttrib);
+                GL.BindVertexArray(data.EdgeData.GLAttrib);
                 GL.LineWidth(1);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Lines, 0, arrow.EdgeData.Count);
+                GL.DrawArrays(BeginMode.Lines, 0, data.EdgeData.Count);
 
-                GL.BindVertexArray(arrow.FacetData.GLAttrib);
+                GL.BindVertexArray(data.FacetData.GLAttrib);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-                GL.DrawArrays(BeginMode.Triangles, 0, arrow.FacetData.Count);
+                GL.DrawArrays(BeginMode.Triangles, 0, data.FacetData.Count);
             }
         }
     }
