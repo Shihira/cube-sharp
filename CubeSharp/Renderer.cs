@@ -417,7 +417,7 @@ namespace CubeSharp
             GL.Enable(EnableCap.DepthTest);
             if((Mode & DrawMode.Facet) != 0) {
                 GL.BindVertexArray(Model.FacetData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelFacet, 0, 0, 0);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
                 GL.DrawArrays(BeginMode.Triangles, 0, Model.FacetData.Count);
             }
@@ -425,7 +425,7 @@ namespace CubeSharp
             GL.Disable(EnableCap.DepthTest);
             if((Mode & DrawMode.Edge) != 0) {
                 GL.BindVertexArray(Model.EdgeData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 2, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelEdge, 0, 0, 0);
                 GL.LineWidth(1);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
                 GL.DrawArrays(BeginMode.Lines, 0, Model.EdgeData.Count);
@@ -433,7 +433,7 @@ namespace CubeSharp
 
             if((Mode & DrawMode.Vertex) != 0) {
                 GL.BindVertexArray(Model.VertexData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 3, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelVertex, 0, 0, 0);
                 GL.PointSize(3);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
                 GL.DrawArrays(BeginMode.Points, 0, Model.VertexData.Count);
@@ -441,7 +441,7 @@ namespace CubeSharp
         }
     }
 
-    public class ControllerRenderer : RendererWithCamera {
+    public class ObjectMapRenderer : RendererWithCamera {
         string vertex_shader_source = @"
         #version 330 core
 
@@ -471,14 +471,14 @@ namespace CubeSharp
 
         void main()
         {
-            outColor = vec4(round(index), mode.x, depth, 0);
+            outColor = vec4(round(index) + 1, mode.x, depth, 0);
         }";
 
         public MeshGraph Model;
 
         DrawMode Mode = DrawMode.All;
 
-        public ControllerRenderer()
+        public ObjectMapRenderer()
         {
             SetSource(vertex_shader_source, "", fragment_shader_source);
         }
@@ -493,7 +493,7 @@ namespace CubeSharp
             GL.Enable(EnableCap.DepthTest);
             if((Mode & DrawMode.Facet) != 0) {
                 GL.BindVertexArray(Model.FacetData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 1, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelFacet, 0, 0, 0);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
                 GL.DrawArrays(BeginMode.Triangles, 0, Model.FacetData.Count);
             }
@@ -501,7 +501,7 @@ namespace CubeSharp
             GL.Disable(EnableCap.DepthTest);
             if((Mode & DrawMode.Edge) != 0) {
                 GL.BindVertexArray(Model.EdgeData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 2, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelEdge, 0, 0, 0);
                 GL.LineWidth(1);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
                 GL.DrawArrays(BeginMode.Lines, 0, Model.EdgeData.Count);
@@ -509,7 +509,7 @@ namespace CubeSharp
 
             if((Mode & DrawMode.Vertex) != 0) {
                 GL.BindVertexArray(Model.VertexData.GLAttrib);
-                GL.Uniform4(Uniform("mode"), 3, 0, 0, 0);
+                GL.Uniform4(Uniform("mode"), (int)ObjectType.ModelVertex, 0, 0, 0);
                 GL.PointSize(3);
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
                 GL.DrawArrays(BeginMode.Points, 0, Model.VertexData.Count);
@@ -575,10 +575,7 @@ namespace CubeSharp
         }
     }
 
-    public class TranslationControllerRenderer : RendererWithCamera {
-        MeshGraph arrow;
-        MeshGraph arrow_cube;
-
+    public abstract class TransformerRenderer : RendererWithCamera {
         string vertex_shader_source = @"
         #version 330 core
 
@@ -612,61 +609,27 @@ namespace CubeSharp
                 outColor = vec4(dot(vec4(1, 2, 3, 0), color), mode.y, depth, 0);
         }";
 
-        Matrix4[] arrowTfs;
-        Vector4[] arrowColors;
+        protected MeshGraph axis;
+        protected Vector4[] axisColors;
 
-        public Vector3 Position;
+        public MeshGraph Model;
+        public Vector3 Position {
+            get { return Model.SelectedVerticesMidpoint; }
+        }
+
+        int type = 0;
         public bool ScreenMode = false;
-        public ControllerType ControllerType = ControllerType.Translation;
 
-        public TranslationControllerRenderer() {
+        protected TransformerRenderer(ObjectType t) {
             SetSource(vertex_shader_source, "", fragment_shader_source);
 
-            arrow = new MeshGraph();
-            arrow_cube = new MeshGraph();
+            type = (int)t;
+            axis = new MeshGraph();
 
-            //// initialize arrow
-            MeshVertex vorg = arrow.AddVertex(0, 0, 0);
-            MeshVertex vhead = arrow.AddVertex(0, 0, 3);
-            MeshVertex vhead1 = arrow.AddVertex( 0.0625f,  0.0625f, 2.5f);
-            MeshVertex vhead2 = arrow.AddVertex(-0.0625f,  0.0625f, 2.5f);
-            MeshVertex vhead3 = arrow.AddVertex(-0.0625f, -0.0625f, 2.5f);
-            MeshVertex vhead4 = arrow.AddVertex( 0.0625f, -0.0625f, 2.5f);
-
-            arrow.AddEdge(vorg, vhead);
-            arrow.AddFacet(vhead1, vhead2, vhead);
-            arrow.AddFacet(vhead2, vhead3, vhead);
-            arrow.AddFacet(vhead3, vhead4, vhead);
-            arrow.AddFacet(vhead4, vhead1, vhead);
-
-            arrow.EdgeData.UpdateData();
-            arrow.FacetData.UpdateData();
-
-            //// initialize arrow_cube
-            BoxMeshFactory mf = new BoxMeshFactory();
-            mf.Length = 0.1f; mf.Width = 0.1f; mf.Height = 0.1f;
-            mf.AddMeshGraphUpon(ref arrow_cube, false);
-            foreach(MeshVertex v in arrow_cube.Vertices)
-                v.Position = v.Position + new Vector3(0, 0, 3);
-
-            vorg = arrow.AddVertex(0, 0, 0);
-            vhead = arrow.AddVertex(0, 0, 3);
-            arrow_cube.AddEdge(vorg, vhead);
-            arrow_cube.EdgeData.UpdateData();
-            arrow_cube.FacetData.UpdateData();
-
-            //// initialization of other members
-            arrowTfs = new Matrix4[3];
-            arrowTfs[0] = Matrix4.Identity;
-            arrowTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
-            arrowTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
-
-            arrowColors = new Vector4[3];
-            arrowColors[0] = new Vector4(0, 0, 1, 1);
-            arrowColors[1] = new Vector4(1, 0, 0, 1);
-            arrowColors[2] = new Vector4(0, 1, 0, 1);
-
-            Position = new Vector3(0, 0, 0);
+            axisColors = new Vector4[3];
+            axisColors[0] = new Vector4(0, 0, 1, 1);
+            axisColors[1] = new Vector4(1, 0, 0, 1);
+            axisColors[2] = new Vector4(0, 1, 0, 1);
         }
 
         public override void Render(RenderTarget rt) {
@@ -677,30 +640,112 @@ namespace CubeSharp
             GL.Disable(EnableCap.DepthTest);
             GL.Disable(EnableCap.CullFace);
 
-            MeshGraph data;
-            if(ControllerType == ControllerType.Translation)
-                data = arrow;
-            else if(ControllerType == ControllerType.Scaling)
-                data = arrow_cube;
-            else
-                throw new Exception("Cannot render this type.");
-
             for(int i = 0; i < 3; i++) {
-                Matrix4 m = arrowTfs[i] * Matrix4.CreateTranslation(Position);
+                Matrix4 m = Tf(i);
                 GL.UniformMatrix4(Uniform("mMat"), false, ref m);
-                GL.Uniform4(Uniform("color"), ref arrowColors[i]);
-                GL.Uniform2(Uniform("mode"), ScreenMode ? 1 : 0,
-                    ControllerType == ControllerType.Translation ? 4 : 5);
+                GL.Uniform4(Uniform("color"), ref axisColors[i]);
+                GL.Uniform2(Uniform("mode"), ScreenMode ? 1 : 0, type);
 
-                GL.BindVertexArray(data.EdgeData.GLAttrib);
-                GL.LineWidth(1);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                GL.DrawArrays(BeginMode.Lines, 0, data.EdgeData.Count);
+                if(axis.Edges.Count > 0) {
+                    GL.BindVertexArray(axis.EdgeData.GLAttrib);
+                    GL.LineWidth(1);
+                    GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+                    GL.DrawArrays(BeginMode.Lines, 0, axis.EdgeData.Count);
+                }
 
-                GL.BindVertexArray(data.FacetData.GLAttrib);
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-                GL.DrawArrays(BeginMode.Triangles, 0, data.FacetData.Count);
+                if(axis.FacetData.Count > 0) {
+                    GL.BindVertexArray(axis.FacetData.GLAttrib);
+                    GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                    GL.DrawArrays(BeginMode.Triangles, 0, axis.FacetData.Count);
+                }
             }
+        }
+
+        protected abstract Matrix4 Tf(int i);
+    }
+
+    public class TranslationTransformerRenderer : TransformerRenderer {
+        protected Matrix4[] axisTfs;
+
+        public TranslationTransformerRenderer() :
+                base(ObjectType.TranslationTransformer) {
+            new ArrowFactory().AddMeshGraphUpon(ref axis, false);
+            axis.EdgeData.UpdateData();
+            axis.FacetData.UpdateData();
+
+            axisTfs = new Matrix4[3];
+            axisTfs[0] = Matrix4.Identity;
+            axisTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
+            axisTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+        }
+
+        protected override Matrix4 Tf(int i) {
+            return axisTfs[i] * Matrix4.CreateTranslation(Position);
+        }
+
+        public Vector2 ScreenVector(int axis) {
+            Vector3 pos = Position;
+            Vector4 v_org = Vector4.Transform(
+                new Vector4(pos, 1), Camera.VPMatrix);
+            v_org /= v_org.W;
+            v_org.Y = -v_org.Y;
+
+            pos[axis] = pos[axis] + 1;
+            Vector4 v_end = Vector4.Transform(
+                new Vector4(pos, 1), Camera.VPMatrix);
+            v_end /= v_end.W;
+            v_end.Y = -v_end.Y;
+
+            return (v_end - v_org).Normalized().Xy;
+        }
+    }
+
+    public class ScalingTransformerRenderer : TransformerRenderer {
+        public Vector3 Scaling;
+        protected Matrix4[] axisTfs;
+
+        public ScalingTransformerRenderer() :
+                base(ObjectType.ScalingTransformer) {
+            new BoxMeshFactory(0.1f, 0.1f, 0.1f)
+                .AddMeshGraphUpon(ref axis, false);
+            foreach(MeshVertex v in axis.Vertices)
+                v.Position = v.Position + new Vector3(0, 0, 3);
+
+            MeshVertex vorg = axis.AddVertex(0, 0, 0);
+            MeshVertex vhead = axis.AddVertex(0, 0, 3);
+            axis.AddEdge(vorg, vhead);
+            axis.EdgeData.UpdateData();
+            axis.FacetData.UpdateData();
+
+            axisTfs = new Matrix4[3];
+            axisTfs[0] = Matrix4.Identity;
+            axisTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
+            axisTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+
+            Scaling = new Vector3(1, 1, 1);
+        }
+
+        protected override Matrix4 Tf(int i) {
+            Vector3 s = new Vector3(1, 1, 1);
+            s[i] = Scaling[i];
+            return Matrix4.CreateScale(s) * axisTfs[i] *
+                Matrix4.CreateTranslation(Position);
+        }
+
+        public Vector2 ScreenVector(int axis) {
+            Vector3 pos = Position;
+            Vector4 v_org = Vector4.Transform(
+                new Vector4(pos, 1), Camera.VPMatrix);
+            v_org /= v_org.W;
+            v_org.Y = -v_org.Y;
+
+            pos[axis] = pos[axis] + 1;
+            Vector4 v_end = Vector4.Transform(
+                new Vector4(pos, 1), Camera.VPMatrix);
+            v_end /= v_end.W;
+            v_end.Y = -v_end.Y;
+
+            return (v_end - v_org).Normalized().Xy;
         }
     }
 }

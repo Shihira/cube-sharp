@@ -90,11 +90,11 @@ namespace CubeSharp
         }
 
         public void f_Edit_Translate() {
-            ParentWindow.ControllerType = ControllerType.Translation;
+            ParentWindow.CurrentTransformer = TransformerType.TranslationTransformer;
         }
 
         public void f_Edit_Scale() {
-            ParentWindow.ControllerType = ControllerType.Scaling;
+            ParentWindow.CurrentTransformer = TransformerType.ScalingTransformer;
         }
 
         public void f_Edit_Rotate() {

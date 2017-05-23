@@ -409,6 +409,16 @@ namespace CubeSharp
             FacetData.UpdateData();
         }
 
+        public Vector3 SelectedVerticesMidpoint {
+            get {
+                Vector3 avg = new Vector3(0, 0, 0);
+                foreach(MeshVertex v in SelectedVertices)
+                    avg += v.Position;
+                avg /= SelectedVertices.Count;
+                return avg;
+            }
+        }
+
         ////////////////////////////////////////////////////////////////////////
         
         MeshFacetData mfd;

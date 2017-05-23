@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using System.Drawing;
 using OpenTK;
@@ -7,10 +9,40 @@ using OpenTK.Graphics.OpenGL;
 
 namespace CubeSharp
 {
-    public enum ControllerType {
-        Translation,
-        Scaling,
-        Rotation,
+    public enum TransformerType {
+        TranslationTransformer,
+        ScalingTransformer,
+        RotationTransformer,
+    }
+
+    public enum ObjectType {
+        None = 0,
+
+        ModelFacet = 1,
+        ModelEdge = 2,
+        ModelVertex = 3,
+        TranslationTransformer = 4,
+        ScalingTransformer = 5,
+        RotationTransformer = 6,
+    }
+
+    public enum DragState {
+        None = 0,
+
+        CameraRotation = 1,
+        CameraTranslation = 2,
+        TranslationTransformer = 3,
+        ScalingTransformer = 4,
+        RotationTransformer = 5,
+        BoxSelect = 6,
+    }
+
+    public class ObjectMapElement {
+        public int Index = 0;
+        public ObjectType Type = ObjectType.None;
+        public Vector3 Position;
+        public int ScreenX = -1;
+        public int ScreenY = -1;
     }
 
     public class MainWindow : Form
@@ -18,16 +50,19 @@ namespace CubeSharp
         // Attrib
         public MeshGraph Model;
         // Uniform
-        Camera cam;
+        public Camera MainCamera;
         // Output
-        RenderTarget ctl;
+        RenderTarget obj_map;
+        float[,,] obj_map_buffer;
 
         // Shaders
         ScreenRenderer srdr;
+        ObjectMapRenderer crdr;
         GridRenderer grdr;
-        ControllerRenderer crdr;
-        TranslationControllerRenderer tcrdr;
+        TranslationTransformerRenderer tcrdr;
+        ScalingTransformerRenderer scrdr;
 
+        // Controls
         GLControl glc;
         FuncPanel func_panel;
         Timer timer;
@@ -35,6 +70,9 @@ namespace CubeSharp
         public MainWindow()
         {
             Fake_InitializeComponent();
+
+            DragInfo = new DragInfo_();
+            OpObject = new ObjectMapElement();
         }
 
         private void Fake_InitializeComponent()
@@ -79,27 +117,32 @@ namespace CubeSharp
         {
             Console.WriteLine(GL.GetString(StringName.Version));
 
-            Model = new BoxMeshFactory().GenerateMeshGraph();
             srdr = new ScreenRenderer();
+            crdr = new ObjectMapRenderer();
             grdr = new GridRenderer();
-            tcrdr = new TranslationControllerRenderer();
-            crdr = new ControllerRenderer();
-            cam = new Camera();
-            ctl = new RenderTarget(PixelType.Float, Viewport);
+            tcrdr = new TranslationTransformerRenderer();
+            scrdr = new ScalingTransformerRenderer();
+
+            Model = new BoxMeshFactory().GenerateMeshGraph();
+            MainCamera = new Camera();
+            obj_map = new RenderTarget(PixelType.Float, Viewport);
 
             Model.EdgeData.UpdateData();
             Model.VertexData.UpdateData();
             Model.FacetData.UpdateData();
-            cam.Tf.RotateY(-Math.PI / 6);
-            cam.Tf.RotateX(-Math.PI / 6);
-            cam.Tf.Translate(0, 0, 5);
+            MainCamera.Tf.RotateY(-Math.PI / 6);
+            MainCamera.Tf.RotateX(-Math.PI / 6);
+            MainCamera.Tf.Translate(0, 0, 5);
 
-            srdr.Camera = cam;
+            srdr.Camera = MainCamera;
             srdr.Model = Model;
-            crdr.Camera = cam;
+            crdr.Camera = MainCamera;
             crdr.Model = Model;
-            grdr.Camera = cam;
-            tcrdr.Camera = cam;
+            grdr.Camera = MainCamera;
+            tcrdr.Camera = MainCamera;
+            tcrdr.Model = Model;
+            scrdr.Camera = MainCamera;
+            scrdr.Model = Model;
 
             CubeSharp_Resize(null, null);
         }
@@ -111,8 +154,9 @@ namespace CubeSharp
             func_panel.Location = glc.Location + new Size(glc.Size.Width, 0);
             func_panel.Size = new Size(225, glc.Size.Height);
 
-            ctl.Size = Viewport;
-            cam.Ratio = Viewport.Width / (double) Viewport.Height;
+            obj_map.Size = Viewport;
+            obj_map_buffer = null;
+            MainCamera.Ratio = Viewport.Width / (double) Viewport.Height;
         }
 
         private void glc_Paint(object sender, EventArgs e)
@@ -128,286 +172,320 @@ namespace CubeSharp
             GL.Clear(ClearBufferMask.ColorBufferBit);
             GL.Clear(ClearBufferMask.DepthBufferBit);
 
-            tcrdr.ScreenMode = true;
-
             grdr.Render(RenderTarget.Screen);
             srdr.Render(RenderTarget.Screen);
 
             if(Model.SelectedVertices.Count > 0) {
-                if(ControllerType == ControllerType.Translation) {
-                    tcrdr.ControllerType = ControllerType.Translation;
+                tcrdr.ScreenMode = true;
+                scrdr.ScreenMode = true;
+
+                if(CurrentTransformer == TransformerType.TranslationTransformer)
                     tcrdr.Render(RenderTarget.Screen);
-                }
-                if(ControllerType == ControllerType.Scaling) {
-                    tcrdr.ControllerType = ControllerType.Scaling;
-                    tcrdr.Render(RenderTarget.Screen);
-                }
-            }
-
-            ////////////////////////////////////
-            ctl.Use();
-            //RenderTarget.Screen.Use();
-
-            GL.ClearColor(0, 0, 0, 0);
-            GL.Clear(ClearBufferMask.ColorBufferBit);
-            GL.Clear(ClearBufferMask.DepthBufferBit);
-
-            tcrdr.ScreenMode = false;
-
-            crdr.Render(ctl);
-
-            if(Model.SelectedVertices.Count > 0) {
-                if(ControllerType == ControllerType.Translation) {
-                    tcrdr.ControllerType = ControllerType.Translation;
-                    tcrdr.Render(ctl);
-                }
-                if(ControllerType == ControllerType.Scaling) {
-                    tcrdr.ControllerType = ControllerType.Scaling;
-                    tcrdr.Render(ctl);
-                }
+                if(CurrentTransformer == TransformerType.ScalingTransformer)
+                    scrdr.Render(RenderTarget.Screen);
             }
 
             glc.SwapBuffers();
+            MarkObjectMap(true);
         }
 
-        private enum DragState {
-            None,
-            CameraRotation,
-            CameraTranslation,
-            Controller,
+        void UpdateObjectMap() {
+            if(obj_map_buffer == null) {
+                obj_map_buffer = new float[Viewport.Height, Viewport.Width, 4];
+                MarkObjectMap(true);
+            }
+
+            if(IsObjectMapDirty()) {
+                obj_map.Use();
+
+                GL.ClearColor(0, 0, 0, 0);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Clear(ClearBufferMask.DepthBufferBit);
+
+                crdr.Render(obj_map);
+
+                if(Model.SelectedVertices.Count > 0) {
+                    tcrdr.ScreenMode = false;
+                    scrdr.ScreenMode = false;
+
+                    if(CurrentTransformer == TransformerType.TranslationTransformer)
+                        tcrdr.Render(obj_map);
+                    if(CurrentTransformer == TransformerType.ScalingTransformer)
+                        scrdr.Render(obj_map);
+                }
+
+                GL.BindTexture(TextureTarget.Texture2D, obj_map.TextureColor);
+                GL.GetTexImage(TextureTarget.Texture2D, 0,
+                        PixelFormat.Rgba, PixelType.Float, obj_map_buffer);
+                MarkObjectMap(false);
+            }
+        }
+
+        void MarkObjectMap(bool dirty) {
+            if(obj_map_buffer != null)
+                obj_map_buffer[0,0,3] = dirty ? -1 : 0;
+        }
+
+        bool IsObjectMapDirty() {
+            return obj_map_buffer[0,0,3] == -1;
+        }
+
+
+        ObjectMapElement ObjectMapFuzzy(int x, int y, int r = 3) {
+            int type = 0;
+            int offx = -r, offy = -r;
+
+            UpdateObjectMap();
+
+            for(int i = -r; i <= r; i++)
+            for(int j = -r; j <= r; j++) {
+                int Y = Viewport.Height-y-1 + i, X = x + j;
+
+                if(obj_map_buffer[Y, X, 1] > type &&
+                        offx * offx + offy * offy > i*i + j*j) {
+                    type = (int) obj_map_buffer[Y, X, 1];
+                    offy = i;
+                    offx = j;
+                }
+            }
+
+            double hfw = Viewport.Width / 2.0, hfh = Viewport.Height / 2.0;
+            int max_x = x + offx, max_y = Viewport.Height-y-1 + offy;
+
+            ObjectMapElement me = new ObjectMapElement();
+            // in controller map, index-0 means emptiness
+            me.Index = ((int)obj_map_buffer[max_y, max_x, 0]) - 1;
+            me.Type = (ObjectType)((int) obj_map_buffer[max_y, max_x, 1]);
+
+            if(type != 0) {
+                Vector4d film_pos = Vector4d.Transform(
+                        new Vector4d(
+                            max_x / hfw - 1,
+                            max_y / hfh - 1,
+                            obj_map_buffer[max_y, max_x, 2], 1),
+                        MainCamera.VPMatrixd.Inverted());
+                film_pos /= film_pos.W;
+                me.Position = (Vector3) film_pos.Xyz;
+            }
+
+            me.ScreenX = max_x;
+            me.ScreenY = Viewport.Height - max_y - 1;
+
+            return me;
         }
 
         public Size Viewport {
             get { return glc.Size; }
         }
 
-        private DragState drag_state = DragState.None;
-        public ControllerType ControllerType = ControllerType.Translation;
-        public Transformation prev_tf;
-        private int prev_x;
-        private int prev_y;
-        private bool shift_down;
-        private int tc_axis;
-        private float tc_prev_dis;
-        private Vector3d prev_insc;
+        ////////////////////////////////////////////////////////////////////////
+
+        // Selection Relevant
+        public bool DeselectOnClick = true;
+        public bool IsSelecting = false;
+
+        // Dragging Relevant
+        public class DragInfo_ {
+            public int StartX = -1;
+            public int StartY = -1;
+            public int CurrentX = -1;
+            public int CurrentY = -1;
+            public int DeltaX { get { return CurrentX - StartX; } }
+            public int DeltaY { get { return CurrentY - StartY; } }
+
+            public DragState State = DragState.None;
+            public object StartInfo;
+            public bool WasDragging = false;
+
+            public void Reset() {
+                State = DragState.None;
+                StartInfo = null;
+                WasDragging = false;
+            }
+        }
+        public DragInfo_ DragInfo;
+
+        // Misc.
+        public TransformerType CurrentTransformer = TransformerType.TranslationTransformer;
+        public ObjectMapElement OpObject; // Object Being Operated
+
+        ////////////////////////////////////////////////////////////////////////
+        // Raw Events
+
+        protected void ModifierKeyDown(Object sender, KeyEventArgs e) {
+            DeselectOnClick = false;
+        }
+
+        protected void ModifierKeyUp(Object sender, KeyEventArgs e) {
+            DeselectOnClick = true;
+        }
 
         private void glc_MouseMove(Object sender, MouseEventArgs e)
         {
-            int delta_x = e.X - prev_x;
-            int delta_y = e.Y - prev_y;
+            DragState s = DragInfo.State;
 
-            if(drag_state == DragState.CameraRotation) {
-                Transformation tf = new Transformation(prev_tf);
+            if(s != DragState.None) {
+                DragInfo.CurrentX = e.X;
+                DragInfo.CurrentY = e.Y;
 
-                Matrix4d m = tf.Matrixd * Matrix4d.Identity; m.Transpose();
-                Vector4d y = Vector4d.Transform(new Vector4d(0, 1, 0, 0), m);
-                //Console.WriteLine(y);
+                if(s == DragState.CameraRotation)
+                    CameraRotation_Drag();
+                else if(s == DragState.CameraTranslation)
+                    CameraTranslation_Drag();
+                else if(s == DragState.TranslationTransformer)
+                    TranslationTransformer_Drag();
+                else if(s == DragState.ScalingTransformer)
+                    ScalingTransformer_Drag();
+                else
+                    throw new Exception("Unhandled dragging type.");
 
-                tf.Translate(0, 0, -5);
-                tf.RotateAxis(y.Xyz, -delta_x * (float)Math.PI / 360);
-                tf.RotateX(-delta_y * (float)Math.PI / 360);
-                tf.Translate(0, 0, 5);
-                cam.Tf = tf;
-            }
-
-            if(drag_state == DragState.CameraTranslation) {
-                Transformation tf = new Transformation(prev_tf);
-                tf.Translate(-delta_x / 120.0f, delta_y / 120.0f, 0);
-                cam.Tf = tf;
-            }
-
-            if(drag_state == DragState.Controller) {
-
-                Vector3 v = tcrdr.Position;
-                Vector4 scr_org = Vector4.Transform(
-                        new Vector4(
-                            (float) prev_insc.X,
-                            (float) prev_insc.Y,
-                            (float) prev_insc.Z, 1),
-                        cam.VPMatrix);
-                Vector4 scr_end = new Vector4(v.X, v.Y, v.Z, 1);
-                scr_end[tc_axis - 1] += 10;
-                scr_end = Vector4.Transform(scr_end, cam.VPMatrix);
-
-                Vector2 dir = (scr_end - scr_org).Normalized().Xy;
-                float dis = Vector2.Dot(new Vector2(
-                    delta_x, -delta_y), dir); 
-
-                Console.WriteLine(dis);
-
-                if(ControllerType == ControllerType.Translation) {
-                    float tl = dis / 50;
-                    float prev_tl = tc_prev_dis / 50;
-
-                    Vector3 avg = new Vector3(0, 0, 0);
-                    foreach(MeshVertex mv in Model.SelectedVertices) {
-                        Vector3 pos = mv.Position;
-                        pos[tc_axis - 1] += tl - prev_tl;
-                        mv.Position = pos;
-                        avg += pos;
-                    }
-                    avg /= Model.SelectedVertices.Count;
-
-                    tcrdr.Position = avg;
-                }
-
-                if(ControllerType == ControllerType.Scaling) {
-                    float sl = dis / 100;
-                    float prev_sl = tc_prev_dis / 100;
-
-                    Vector3 avg = new Vector3(0, 0, 0);
-                    foreach(MeshVertex mv in Model.SelectedVertices)
-                        avg += mv.Position;
-                    avg /= Model.SelectedVertices.Count;
-
-                    foreach(MeshVertex mv in Model.SelectedVertices) {
-                        Vector3 pos = mv.Position;
-                        float delta = pos[tc_axis - 1] - avg[tc_axis - 1];
-                        float scaled_delta = delta / (1 + prev_sl) * (1 + sl);
-                        pos[tc_axis - 1] += scaled_delta - delta;
-                        mv.Position = pos;
-                    }
-
-                    tcrdr.Position = avg;
-                }
-
-                tc_prev_dis = dis;
-                Model.UpdateAll();
+                DragInfo.WasDragging = true;
             }
         }
 
         private void glc_MouseWheel(Object sender, MouseEventArgs e)
         {
             if(e.Delta > 0) {
-                cam.Tf.Scale(0.95);
+                MainCamera.Tf.Scale(0.95);
             } else {
-                cam.Tf.Scale(1.05);
+                MainCamera.Tf.Scale(1.05);
             }
         }
 
         private void glc_MouseUp(Object sender, MouseEventArgs e)
         {
-            drag_state = DragState.None;
+            DragInfo.Reset();
         }
 
         private void glc_MouseDown(Object sender, MouseEventArgs e)
         {
-            prev_x = e.X;
-            prev_y = e.Y;
-            prev_tf = new Transformation(cam.Tf);
+            if(DeselectOnClick && Model.SelectedVertices.Count > 0) {
+                Model.DeselectAll();
+                Model.UpdateAll();
+            }
+
+            DragInfo.StartX = e.X;
+            DragInfo.StartY = e.Y;
 
             if(e.Button == MouseButtons.Middle) {
-                drag_state = DragState.CameraRotation;
+                DragInfo.State = DragState.CameraRotation;
+                DragInfo.StartInfo = new Transformation(MainCamera.Tf);
             }
 
             if(e.Button == MouseButtons.Right) {
-                drag_state = DragState.CameraTranslation;
+                DragInfo.State = DragState.CameraTranslation;
+                DragInfo.StartInfo = new Transformation(MainCamera.Tf);
             }
 
             if(e.Button == MouseButtons.Left) {
-                float[,,] buf = new float[Viewport.Height, Viewport.Width, 4];
+                OpObject = ObjectMapFuzzy(DragInfo.StartX, DragInfo.StartY);
 
-                GL.BindTexture(TextureTarget.Texture2D, ctl.TextureColor);
-                GL.GetTexImage(TextureTarget.Texture2D, 0,
-                        PixelFormat.Rgba, PixelType.Float, buf);
+                if(OpObject.Type == ObjectType.ModelVertex)
+                    ModelVertex_Click();
+                else if(OpObject.Type == ObjectType.ModelEdge)
+                    ModelEdge_Click();
+                else if(OpObject.Type == ObjectType.ModelFacet)
+                    ModelFacet_Click();
+                else {
+                    if(OpObject.Type == ObjectType.RotationTransformer)
+                        DragInfo.State = DragState.RotationTransformer;
+                    else if(OpObject.Type == ObjectType.ScalingTransformer)
+                        DragInfo.State = DragState.ScalingTransformer;
+                    else if(OpObject.Type == ObjectType.TranslationTransformer)
+                        DragInfo.State = DragState.TranslationTransformer;
 
-                double hfw = Viewport.Width / 2.0;
-                double hfh = Viewport.Height / 2.0;
-                int clicky = Viewport.Height - 1 - e.Y, clickx = e.X;
-
-                int index = 0,
-                    type = 0,
-                    offx = -3,
-                    offy = -3;
-                float depth = 0;
-
-                for(int i = -3; i <= 3; i++)
-                for(int j = -3; j <= 3; j++) {
-                    int Y = clicky + i, X = clickx + j;
-
-                    if(buf[Y, X, 1] > type && offx * offx + offy * offy > i*i + j*j) {
-                        index = (int) buf[Y, X, 0];
-                        type = (int) buf[Y, X, 1];
-                        depth = buf[Y, X, 2];
-
-                        offy = i;
-                        offx = j;
-                    }
+                    var start_pos = new List<Tuple<int, Vector3>>();
+                    foreach(MeshVertex v in Model.SelectedVertices)
+                        start_pos.Add(new Tuple<int, Vector3>(v.Index, v.Position));
+                    DragInfo.StartInfo = start_pos;
                 }
-
-                //Console.WriteLine(index + ", " + type + ", " + depth);
-
-                if(type != 0) {
-                    Vector4d film_pos = Vector4d.Transform(
-                            new Vector4d(
-                                (offx + clickx) / hfw - 1,
-                                (offy + clicky) / hfh - 1,
-                                depth, 1),
-                            cam.VPMatrixd.Inverted());
-                    film_pos /= film_pos.W;
-
-                    prev_insc = film_pos.Xyz;
-
-                    Console.WriteLine(film_pos.Xyz);
-                }
-
-                if(type == 4) {
-                    drag_state = DragState.Controller;
-                    ControllerType = ControllerType.Translation;
-                    tc_axis = index;
-                    tc_prev_dis = 0;
-                } else if(type == 5) {
-                    drag_state = DragState.Controller;
-                    ControllerType = ControllerType.Scaling;
-                    tc_axis = index;
-                    tc_prev_dis = 0;
-                } else if(type == 3) {
-                    if(!shift_down) Model.DeselectAll();
-
-                    Model.Vertices[index].Selected = true;
-
-                    tcrdr.Position = Model.Vertices[index].Position;
-                } else if(type == 2) {
-                    if(!shift_down) Model.DeselectAll();
-
-                    Model.Edges[index].Selected = true;
-                    Model.Edges[index].V1.Selected = true;
-                    Model.Edges[index].V2.Selected = true;
-
-                    tcrdr.Position = (Model.Edges[index].V1.Position +
-                        Model.Edges[index].V2.Position) / 2;
-                } else if(type == 1) {
-                    if(!shift_down) Model.DeselectAll();
-
-                    Model.Facets[index].Selected = true;
-
-                    Vector3 avg = new Vector3(0, 0, 0);
-                    float count = 0;
-                    foreach(MeshEdge fe in Model.Facets[index].Edges) {
-                        fe.Selected = true;
-                        fe.V1.Selected = true;
-                        fe.V2.Selected = true;
-                        avg += fe.V1.Position;
-                        avg += fe.V2.Position;
-                        count += 2;
-                    }
-                    avg /= count;
-                    tcrdr.Position = avg;
-                } else {
-                    if(!shift_down) Model.DeselectAll();
-                }
-
-                Model.UpdateAll();
             }
         }
 
-        protected void ModifierKeyDown(Object sender, KeyEventArgs e) {
-            shift_down = e.Shift;
+        ////////////////////////////////////////////////////////////////////////
+        /// Semantic Events
+
+        void ModelVertex_Click() {
+            Model.Vertices[OpObject.Index].Selected = true;
+            Model.UpdateAll();
         }
 
-        protected void ModifierKeyUp(Object sender, KeyEventArgs e) {
-            shift_down = e.Shift;
+        void ModelEdge_Click() {
+            Model.Edges[OpObject.Index].Selected = true;
+            Model.Edges[OpObject.Index].V1.Selected = true;
+            Model.Edges[OpObject.Index].V2.Selected = true;
+            Model.UpdateAll();
         }
+
+        void ModelFacet_Click() {
+            Model.Facets[OpObject.Index].Selected = true;
+
+            foreach(MeshEdge fe in Model.Facets[OpObject.Index].Edges) {
+                fe.Selected = true;
+                fe.V1.Selected = true;
+                fe.V2.Selected = true;
+            }
+
+            Model.UpdateAll();
+        }
+
+        void CameraRotation_Drag() {
+            Transformation tf = new Transformation(
+                    (Transformation)DragInfo.StartInfo);
+
+            Matrix4d m = tf.Matrixd * Matrix4d.Identity;
+            m.Transpose();
+            Vector4d y = Vector4d.Transform(new Vector4d(0, 1, 0, 0), m);
+
+            tf.Translate(0, 0, -5);
+            tf.RotateAxis(y.Xyz, -DragInfo.DeltaX * (float)Math.PI / 360);
+            tf.RotateX(-DragInfo.DeltaY * (float)Math.PI / 360);
+            tf.Translate(0, 0, 5);
+            MainCamera.Tf = tf;
+        }
+
+        void CameraTranslation_Drag() {
+            Transformation tf = new Transformation(
+                    (Transformation)DragInfo.StartInfo);
+            tf.Translate(-DragInfo.DeltaX / 120.0f, DragInfo.DeltaY / 120.0f, 0);
+            MainCamera.Tf = tf;
+        }
+
+        void TranslationTransformer_Drag() {
+            Vector2 dir = tcrdr.ScreenVector(OpObject.Index);
+            float dis = Vector2.Dot(new Vector2(
+                        DragInfo.DeltaX, DragInfo.DeltaY), dir); 
+            dis /= 50;
+
+            foreach(var t in (List<Tuple<int, Vector3>>)DragInfo.StartInfo) {
+                Vector3 pos = t.Item2;
+                pos[OpObject.Index] += dis;
+                Model.Vertices[t.Item1].Position = pos;
+            }
+
+            Model.UpdateAll();
+        }
+
+        void ScalingTransformer_Drag() {
+            Vector2 dir = scrdr.ScreenVector(OpObject.Index);
+            float dis = Vector2.Dot(new Vector2(
+                        DragInfo.DeltaX, DragInfo.DeltaY), dir); 
+            dis /= 50;
+            Vector3 center = scrdr.Position;
+
+            foreach(var t in (List<Tuple<int, Vector3>>)DragInfo.StartInfo) {
+                Vector3 pos = t.Item2;
+                float delta = pos[OpObject.Index] - center[OpObject.Index];
+                pos[OpObject.Index] += dis * delta;
+                Console.WriteLine(pos);
+                Model.Vertices[t.Item1].Position = pos;
+            }
+
+            Model.UpdateAll();
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        /// Main
 
         static public void Main(string[] args)
         {

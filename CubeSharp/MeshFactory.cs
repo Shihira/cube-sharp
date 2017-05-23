@@ -4,14 +4,29 @@ using OpenTK;
 
 namespace CubeSharp
 {
-    public class BoxMeshFactory {
-        public const string Name = "Box";
+    public abstract class MeshFactory {
+        public abstract void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true);
 
+        public MeshGraph GenerateMeshGraph() {
+            MeshGraph mg = new MeshGraph();
+            AddMeshGraphUpon(ref mg, false);
+            return mg;
+        }
+    }
+
+    public class BoxMeshFactory : MeshFactory {
         public float Length = 2;
         public float Width = 2;
         public float Height = 2;
 
-        public void AddMeshGraphUpon(ref MeshGraph mg, bool selected = true) {
+        public BoxMeshFactory() { }
+        public BoxMeshFactory(float l, float w, float h) {
+            Length = l; Width = w; Height = h;
+        }
+
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
             float l = Length / 2 , w = Width / 2, h = Height / 2;
 
             MeshVertex v0 = mg.AddVertex( l,  h,  w);
@@ -38,21 +53,27 @@ namespace CubeSharp
             }
         }
 
-        public MeshGraph GenerateMeshGraph() {
-            MeshGraph mg = new MeshGraph();
-            AddMeshGraphUpon(ref mg, false);
-            return mg;
-        }
     }
 
-    /*
-    public class PlaneFactory {
-        public float Height = 2;
-        public float Wdith = 2;
+    public class ArrowFactory : MeshFactory {
+        public float Length = 3;
+        public float HeadSize = 0.5f;
 
-        public Mesh GenerateMesh() {
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
+            MeshVertex vorg = mg.AddVertex(0, 0, 0);
+            MeshVertex vhead = mg.AddVertex(0, 0, Length);
+            MeshVertex vhead1 = mg.AddVertex( HeadSize / 8,  HeadSize / 8, Length - HeadSize);
+            MeshVertex vhead2 = mg.AddVertex(-HeadSize / 8,  HeadSize / 8, Length - HeadSize);
+            MeshVertex vhead3 = mg.AddVertex(-HeadSize / 8, -HeadSize / 8, Length - HeadSize);
+            MeshVertex vhead4 = mg.AddVertex( HeadSize / 8, -HeadSize / 8, Length - HeadSize);
+
+            mg.AddEdge(vorg, vhead);
+            mg.AddFacet(vhead1, vhead2, vhead);
+            mg.AddFacet(vhead2, vhead3, vhead);
+            mg.AddFacet(vhead3, vhead4, vhead);
+            mg.AddFacet(vhead4, vhead1, vhead);
         }
     }
-    */
 }
 
