@@ -70,7 +70,12 @@ namespace CubeSharp
 
         public IEnumerable<MeshFacet> AdjacencyFacets {
             get {
-                throw new Exception("Not Implemented");
+                foreach(var e in Edges) {
+                    if(e.F1 != null)
+                        yield return e.F1;
+                    if(e.F2 != null)
+                        yield return e.F2;
+                }
             }
         }
 
@@ -182,7 +187,7 @@ namespace CubeSharp
         public MeshFacet(params MeshVertex[] input) :
             this((IEnumerable<MeshVertex>)input) { }
 
-        public IEnumerable<MeshVertex> Vertices {
+        public List<MeshVertex> Vertices {
             get { return vertices; }
         }
 
@@ -234,6 +239,10 @@ namespace CubeSharp
             return AddVertex(new MeshVertex(x, y, z));
         }
 
+        public MeshVertex AddVertex(Vector3 pos) {
+            return AddVertex(new MeshVertex(pos));
+        }
+
         public MeshVertex AddVertex(MeshVertex v) {
             int i = vertices.Count;
             vertices.Add(v);
@@ -255,18 +264,57 @@ namespace CubeSharp
             v.ClearAdjacency();
         }
 
-        public MeshEdge AddEdge(MeshVertex p1, MeshVertex p2) {
+        public MeshEdge AddEdge(MeshVertex p1, MeshVertex p2,
+                bool check_facet = false) {
             MeshEdge e = p1.EdgeConnecting(p2);
             if(e != null) return e;
 
-            MeshEdge real_e = new MeshEdge(p1, p2);
-            p1.adjacency.Add(p2, real_e);
-            p2.adjacency.Add(p1, real_e);
+            e = new MeshEdge(p1, p2);
+            p1.adjacency.Add(p2, e);
+            p2.adjacency.Add(p1, e);
 
             int i = edges.Count;
-            edges.Add(real_e);
-            real_e.SetGraphInfo(this, i);
-            return real_e;
+            edges.Add(e);
+            e.SetGraphInfo(this, i);
+
+            if(check_facet) {
+                // check the intersection
+                MeshFacet common_facet = null;
+                HashSet<MeshFacet> p1f = new HashSet<MeshFacet>(
+                        p1.AdjacencyFacets);
+                foreach(MeshFacet f in p2.AdjacencyFacets) {
+                    if(p1f.Contains(f)) {
+                        common_facet = f;
+                        break;
+                    }
+                }
+
+                if(common_facet != null) {
+                    List<MeshVertex> f1 = new List<MeshVertex>();
+                    List<MeshVertex> f2 = new List<MeshVertex>();
+
+                    List<MeshVertex> current = f1;
+                    foreach(MeshVertex v in common_facet.Vertices) {
+                        // if current vertex matches p1 or p2, add this vertex
+                        // to both vertex list and switch current to the other one
+                        current.Add(v);
+
+                        if(v == p1) {
+                            current = current == f1 ? f2 : f1;
+                            current.Add(p1);
+                        } else if(v == p2) {
+                            current = current == f1 ? f2 : f1;
+                            current.Add(p2);
+                        }
+                    }
+
+                    this.RemoveFacet(common_facet);
+                    this.AddFacet(f1.ToArray());
+                    this.AddFacet(f2.ToArray());
+                }
+            }
+
+            return e;
         }
 
         public void RemoveEdge(MeshEdge e) {
@@ -417,6 +465,100 @@ namespace CubeSharp
                 avg /= SelectedVertices.Count;
                 return avg;
             }
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+
+        public MeshVertex SplitEdgeAt(MeshEdge e, Vector3 pos) {
+            if(Edges[e.Index] != e)
+                return null;
+
+            MeshVertex new_v = this.AddVertex(pos);
+
+            // save the vertex sequences of adjacency facets
+            List<MeshVertex> f1v = new List<MeshVertex>();
+            List<MeshVertex> f2v = new List<MeshVertex>();
+
+            if(e.F1 != null) {
+                for(int i = 0; i < e.F1.Vertices.Count; i++) {
+                    var vs = e.F1.Vertices;
+                    f1v.Add(vs[i]);
+                    MeshEdge cur_e = vs[i].EdgeConnecting(vs[(i+1)%vs.Count]);
+                    if(cur_e == e) f1v.Add(new_v);
+                }
+            }
+
+            if(e.F2 != null) {
+                for(int i = 0; i < e.F2.Vertices.Count; i++) {
+                    var vs = e.F2.Vertices;
+                    f2v.Add(vs[i]);
+                    MeshEdge cur_e = vs[i].EdgeConnecting(vs[(i+1)%vs.Count]);
+                    if(cur_e == e) f2v.Add(new_v);
+                }
+            }
+
+            // reconstruct facet
+            this.RemoveEdge(e);
+            if(f1v.Count > 0) this.AddFacet(f1v.ToArray());
+            if(f2v.Count > 0) this.AddFacet(f2v.ToArray());
+
+            return new_v;
+        }
+
+        public MeshFacet AddTriangle(Vector3 posdir, params MeshVertex[] vs) {
+            // There should always be one edge that has connected with
+            // another facet to create a correct facet, otherwise the
+            // algorithm will create the facet corresponding to posdir
+            bool has_connected_edge = false;
+
+            // After sorting, vs[0] -> vs[1] -> vs[2] is a positive order
+            for(int i = 0; i < 2; i++)
+            for(int j = i + 1; j < 2; j++) {
+                MeshEdge e = vs[i].EdgeConnecting(vs[j]);
+
+                if(e == null)
+                    continue;
+
+                if(e.F1 != null) {
+                    has_connected_edge = true;
+
+                    MeshVertex[] sorted_vs = new MeshVertex[3];
+                    sorted_vs[0] = e.V2;
+                    sorted_vs[1] = e.V1;
+                    sorted_vs[2] = vs[3-i-j];
+                    vs = sorted_vs;
+
+                    break;
+                }
+
+                if(e.F2 != null) {
+                    has_connected_edge = true;
+
+                    MeshVertex[] sorted_vs = new MeshVertex[3];
+                    sorted_vs[0] = e.V1;
+                    sorted_vs[1] = e.V2;
+                    sorted_vs[2] = vs[3-i-j];
+                    vs = sorted_vs;
+
+                    break;
+                }
+            }
+
+            if(!has_connected_edge) {
+                Vector3 normal = Vector3.Cross(
+                        vs[1].Position - vs[0].Position,
+                        vs[2].Position - vs[1].Position);
+
+                if(Vector3.Dot(posdir, normal) < 0) {
+                    MeshVertex[] sorted_vs = new MeshVertex[3];
+                    sorted_vs[0] = vs[2];
+                    sorted_vs[1] = vs[1];
+                    sorted_vs[2] = vs[0];
+                    vs = sorted_vs;
+                }
+            }
+
+            return this.AddFacet(vs);
         }
 
         ////////////////////////////////////////////////////////////////////////

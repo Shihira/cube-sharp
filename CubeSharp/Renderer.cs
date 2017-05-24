@@ -314,6 +314,12 @@ namespace CubeSharp
             Tf = new Transformation();
         }
 
+        public Vector3 Position {
+            get {
+                return Tf.Matrix.ExtractTranslation();
+            }
+        }
+
         public Matrix4 VPMatrix {
             get {
                 Matrix4 m = Tf.InverseMatrix;
@@ -746,6 +752,72 @@ namespace CubeSharp
             v_end.Y = -v_end.Y;
 
             return (v_end - v_org).Normalized().Xy;
+        }
+    }
+
+    public class SelectionBoxRenderer : RendererBase {
+        MeshGraph plane;
+
+        public Vector2 StartPoint;
+        public Vector2 EndPoint;
+
+        string vertex_shader_source = @"
+        #version 330 core
+
+        uniform vec4 rect;
+
+        layout(location = 0) in vec4 position;
+
+        void main()
+        {
+            gl_Position = vec4(rect.zw * position.xy + rect.xy, 0, 1);
+        }";
+
+        string fragment_shader_source = @"
+        #version 330 core
+
+        out vec4 outColor;
+
+        void main()
+        {
+            outColor = vec4(1, 1, 1, 0.2);
+        }";
+
+        public SelectionBoxRenderer() {
+            SetSource(vertex_shader_source, "", fragment_shader_source);
+
+            plane = new MeshGraph();
+            var v1 = plane.AddVertex(0, 0, 0);
+            var v2 = plane.AddVertex(0, 1, 0);
+            var v3 = plane.AddVertex(1, 1, 0);
+            var v4 = plane.AddVertex(1, 0, 0);
+
+            plane.AddFacet(v1, v2, v3, v4);
+            plane.FacetData.UpdateData();
+        }
+
+        public override void Render(RenderTarget rt) {
+            rt.Use();
+            GL.UseProgram(Program);
+
+            Vector2 sp = StartPoint * 2 - new Vector2(1, 1);
+            sp.Y = -sp.Y;
+            Vector2 ep = EndPoint * 2 - new Vector2(1, 1);
+            ep.Y = -ep.Y;
+            Vector2 sz = ep - sp;
+
+            GL.Disable(EnableCap.CullFace);
+            GL.Disable(EnableCap.DepthTest);
+            GL.Enable(EnableCap.Blend);
+            GL.BlendFunc(BlendingFactorSrc.SrcAlpha,
+                BlendingFactorDest.OneMinusSrcAlpha);
+
+            GL.BindVertexArray(plane.FacetData.GLAttrib);
+            GL.Uniform4(Uniform("rect"), sp.X, sp.Y, sz.X, sz.Y);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+            GL.DrawArrays(BeginMode.Triangles, 0, plane.FacetData.Count);
+
+            GL.Disable(EnableCap.Blend);
         }
     }
 }

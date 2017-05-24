@@ -84,9 +84,5 @@ namespace CubeSharp {
                     Assert.AreEqual(v.Edges.Count, 1);
             }
         }
-
-        [Test]
-        public void CreateRectangle() {
-        }
     }
 }

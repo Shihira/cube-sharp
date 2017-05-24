@@ -4,6 +4,8 @@ using System.Reflection;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Collections.Generic;
+using OpenTK;
+using OpenTK.Graphics;
 
 namespace CubeSharp
 {
@@ -61,6 +63,7 @@ namespace CubeSharp
                 Button btn = new Button();
                 btn.Text = title;
                 btn.Dock = DockStyle.Top;
+                btn.FlatStyle = FlatStyle.System;
                 btn.Click += (o, e) => {
                     button_pressed = btn;
                     try {
@@ -138,15 +141,22 @@ namespace CubeSharp
         public void f_Edit_Connect() {
             if(model.SelectedVertices.Count == 2) {
                 model.AddEdge(model.SelectedVertices.First(),
-                        model.SelectedVertices.Last());
+                        model.SelectedVertices.Last(), true);
             } else if(model.SelectedVertices.Count == 3) {
+                // There should always be one edge that has connected with
+                // another facet to create a correct facet, otherwise the
+                // algorithm will treat the direction of camera as positive.
                 MeshVertex[] vs = new MeshVertex[3];
-                int i = 0;
+                int vi = 0;
                 foreach(MeshVertex v in model.SelectedVertices)
-                    vs[i++] = v;
-                model.AddFacet(vs);
+                    vs[vi++] = v;
+
+                Vector3 cam_dir = ParentWindow.MainCamera.Position -
+                    vs[0].Position;
+
+                ParentWindow.Model.AddTriangle(cam_dir, vs);
             } else
-                throw new Exception("Cannot connect more than 3 vertices");
+                throw new Exception("Can only connect 2 vertices with an edge or 3 vertices with a triangle");
 
             model.UpdateAll();
         }
@@ -157,16 +167,72 @@ namespace CubeSharp
         public void f_Edit_Extrude() {
         }
 
+        public void f_Edit_Split() {
+            ParentWindow.IsSplitting = true;
+        }
+
         public void f_Selection_Select_All() {
+            foreach(MeshVertex v in ParentWindow.Model.Vertices)
+                v.Selected = true;
+            foreach(MeshEdge e in ParentWindow.Model.Edges)
+                e.Selected = true;
+            foreach(MeshFacet f in ParentWindow.Model.Facets)
+                f.Selected = true;
+
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Selection_Select_Neighbours() {
+            Stack<MeshVertex> vstack = new Stack<MeshVertex>(ParentWindow.Model.SelectedVertices);
+            ParentWindow.Model.DeselectAll();
+
+            while(vstack.Count > 0) {
+                MeshVertex v = vstack.Pop();
+                if(v.Selected) continue;
+                v.Selected = true;
+
+                foreach(MeshEdge e in v.Edges) {
+                    e.Selected = true;
+                    if(e.F1 != null) e.F1.Selected = true;
+                    if(e.F2 != null) e.F2.Selected = true;
+                }
+
+                foreach(MeshVertex adj in v.AdjacencyVertices) {
+                    vstack.Push(adj);
+                }
+            }
+
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Selection_Deselect_All() {
+            ParentWindow.Model.DeselectAll();
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Selection_Box_Select() {
+            if(button_pressed.ContextMenuStrip == null) {
+                ContextMenuStrip cms = new ContextMenuStrip();
+                var select_vertices = cms.Items.Add("Select Vertices");
+                var select_edges = cms.Items.Add("Select Edges");
+                var select_facets = cms.Items.Add("Select Facets");
+
+                select_vertices.Click += (o, e) => {
+                    ParentWindow.BoxSelectingType = ObjectType.ModelVertex;
+                };
+
+                select_edges.Click += (o, e) => {
+                    ParentWindow.BoxSelectingType = ObjectType.ModelEdge;
+                };
+
+                select_facets.Click += (o, e) => {
+                    ParentWindow.BoxSelectingType = ObjectType.ModelFacet;
+                };
+
+                button_pressed.ContextMenuStrip = cms;
+            }
+
+            show_menu();
         }
 
         public void f_View_Wireframe() {
@@ -176,9 +242,6 @@ namespace CubeSharp
         }
 
         public void f_View_Reset_Camera() {
-        }
-
-        public void f_Edit_Cut_Apart() {
         }
 
         public void f_Create_Vertex() {

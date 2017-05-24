@@ -29,12 +29,18 @@ namespace CubeSharp
     public enum DragState {
         None = 0,
 
-        CameraRotation = 1,
-        CameraTranslation = 2,
-        TranslationTransformer = 3,
-        ScalingTransformer = 4,
-        RotationTransformer = 5,
-        BoxSelect = 6,
+        LeftButton,
+        MiddleButton,
+        RightButton,
+
+        RawStates,
+
+        CameraRotation,
+        CameraTranslation,
+        TranslationTransformer,
+        ScalingTransformer,
+        RotationTransformer,
+        BoxSelect,
     }
 
     public class ObjectMapElement {
@@ -61,6 +67,7 @@ namespace CubeSharp
         GridRenderer grdr;
         TranslationTransformerRenderer tcrdr;
         ScalingTransformerRenderer scrdr;
+        SelectionBoxRenderer sbrdr;
 
         // Controls
         GLControl glc;
@@ -122,6 +129,7 @@ namespace CubeSharp
             grdr = new GridRenderer();
             tcrdr = new TranslationTransformerRenderer();
             scrdr = new ScalingTransformerRenderer();
+            sbrdr = new SelectionBoxRenderer();
 
             Model = new BoxMeshFactory().GenerateMeshGraph();
             MainCamera = new Camera();
@@ -185,6 +193,17 @@ namespace CubeSharp
                     scrdr.Render(RenderTarget.Screen);
             }
 
+            if(DragInfo.State == DragState.BoxSelect) {
+                sbrdr.StartPoint = new Vector2(
+                        ((float)DragInfo.StartX) / Viewport.Width,
+                        ((float)DragInfo.StartY) / Viewport.Height);
+                sbrdr.EndPoint = new Vector2(
+                        ((float)DragInfo.CurrentX) / Viewport.Width,
+                        ((float)DragInfo.CurrentY) / Viewport.Height);
+
+                sbrdr.Render(RenderTarget.Screen);
+            }
+
             glc.SwapBuffers();
             MarkObjectMap(true);
         }
@@ -231,7 +250,8 @@ namespace CubeSharp
         }
 
 
-        ObjectMapElement ObjectMapFuzzy(int x, int y, int r = 3) {
+        ObjectMapElement ObjectMapFuzzy(int x, int y,
+                int r = 3, int obj_upbound = int.MaxValue) {
             int type = 0;
             int offx = -r, offy = -r;
 
@@ -242,6 +262,7 @@ namespace CubeSharp
                 int Y = Viewport.Height-y-1 + i, X = x + j;
 
                 if(obj_map_buffer[Y, X, 1] > type &&
+                        obj_map_buffer[Y, X, 1] <= obj_upbound &&
                         offx * offx + offy * offy > i*i + j*j) {
                     type = (int) obj_map_buffer[Y, X, 1];
                     offy = i;
@@ -281,8 +302,8 @@ namespace CubeSharp
         ////////////////////////////////////////////////////////////////////////
 
         // Selection Relevant
-        public bool DeselectOnClick = true;
-        public bool IsSelecting = false;
+        public bool KeepSelectionOnClick = false;
+        public ObjectType BoxSelectingType = ObjectType.None;
 
         // Dragging Relevant
         public class DragInfo_ {
@@ -308,39 +329,81 @@ namespace CubeSharp
         // Misc.
         public TransformerType CurrentTransformer = TransformerType.TranslationTransformer;
         public ObjectMapElement OpObject; // Object Being Operated
+        public bool IsSplitting = false;
+        public int PreviousSplittedIndex = -1;
 
         ////////////////////////////////////////////////////////////////////////
         // Raw Events
 
-        protected void ModifierKeyDown(Object sender, KeyEventArgs e) {
-            DeselectOnClick = false;
+        void ModifierKeyDown(Object sender, KeyEventArgs e) {
+            KeepSelectionOnClick = e.Shift;
         }
 
-        protected void ModifierKeyUp(Object sender, KeyEventArgs e) {
-            DeselectOnClick = true;
+        void ModifierKeyUp(Object sender, KeyEventArgs e) {
+            KeepSelectionOnClick = e.Shift;
         }
 
         private void glc_MouseMove(Object sender, MouseEventArgs e)
         {
             DragState s = DragInfo.State;
 
-            if(s != DragState.None) {
-                DragInfo.CurrentX = e.X;
-                DragInfo.CurrentY = e.Y;
+            if(s == DragState.None)
+                return;
 
-                if(s == DragState.CameraRotation)
-                    CameraRotation_Drag();
-                else if(s == DragState.CameraTranslation)
-                    CameraTranslation_Drag();
-                else if(s == DragState.TranslationTransformer)
-                    TranslationTransformer_Drag();
-                else if(s == DragState.ScalingTransformer)
-                    ScalingTransformer_Drag();
-                else
-                    throw new Exception("Unhandled dragging type.");
+            if(s < DragState.RawStates) {
+                if(s == DragState.LeftButton) {
+                    OpObject = ObjectMapFuzzy(DragInfo.StartX, DragInfo.StartY);
 
+                    bool save_selected_pos = true;
+
+                    if(BoxSelectingType != ObjectType.None) {
+                        DragInfo.State = DragState.BoxSelect;
+                    } else if(OpObject.Type == ObjectType.TranslationTransformer) {
+                        DragInfo.State = DragState.TranslationTransformer;
+                    } else if(OpObject.Type == ObjectType.ScalingTransformer) {
+                        DragInfo.State = DragState.ScalingTransformer;
+                    } else {
+                        DragInfo.State = DragState.None;
+                        save_selected_pos = false;
+                    }
+
+                    if(save_selected_pos) {
+                        var start_pos = new List<Tuple<int, Vector3>>();
+                        foreach(MeshVertex v in Model.SelectedVertices)
+                            start_pos.Add(new Tuple<int, Vector3>(
+                                        v.Index, v.Position));
+                        DragInfo.StartInfo = start_pos;
+                    }
+                }
+
+                if(s == DragState.MiddleButton) {
+                    DragInfo.State = DragState.CameraRotation;
+                    DragInfo.StartInfo = new Transformation(MainCamera.Tf);
+                }
+
+                if(s == DragState.RightButton) {
+                    DragInfo.State = DragState.CameraTranslation;
+                    DragInfo.StartInfo = new Transformation(MainCamera.Tf);
+                }
+
+                glc_MouseMove(sender, e);
                 DragInfo.WasDragging = true;
+                return;
             }
+
+            DragInfo.CurrentX = e.X;
+            DragInfo.CurrentY = e.Y;
+
+            if(s == DragState.CameraRotation)
+                CameraRotation_Drag();
+            else if(s == DragState.CameraTranslation)
+                CameraTranslation_Drag();
+            else if(s == DragState.TranslationTransformer)
+                TranslationTransformer_Drag();
+            else if(s == DragState.ScalingTransformer)
+                ScalingTransformer_Drag();
+
+            DragInfo.WasDragging = true;
         }
 
         private void glc_MouseWheel(Object sender, MouseEventArgs e)
@@ -354,51 +417,58 @@ namespace CubeSharp
 
         private void glc_MouseUp(Object sender, MouseEventArgs e)
         {
+            // Was to drag but didn't, treated as clicked
+            if(!DragInfo.WasDragging) {
+                // This behavious is usually cancelling actions
+                if(DragInfo.State == DragState.RightButton) {
+                    IsSplitting = false;
+                } else if(DragInfo.State == DragState.LeftButton) {
+                    OpObject = ObjectMapFuzzy(e.X, e.Y, 3, (int)ObjectType.ModelVertex);
+
+                    TryKeepSelection();
+
+                    if(OpObject.Type == ObjectType.ModelVertex) {
+                        ModelVertex_Click();
+                    } else if(OpObject.Type == ObjectType.ModelEdge) {
+                        ModelEdge_Click();
+                    } else if(OpObject.Type == ObjectType.ModelFacet) {
+                        ModelFacet_Click();
+                    }
+                }
+            } else if(DragInfo.State == DragState.None) {
+                TryKeepSelection();
+            }
+
+            if(DragInfo.State == DragState.BoxSelect) {
+                BoxSelect_Finished();
+                this.BoxSelectingType = ObjectType.None;
+            }
+
             DragInfo.Reset();
         }
 
         private void glc_MouseDown(Object sender, MouseEventArgs e)
         {
-            if(DeselectOnClick && Model.SelectedVertices.Count > 0) {
-                Model.DeselectAll();
-                Model.UpdateAll();
-            }
-
             DragInfo.StartX = e.X;
             DragInfo.StartY = e.Y;
 
             if(e.Button == MouseButtons.Middle) {
-                DragInfo.State = DragState.CameraRotation;
-                DragInfo.StartInfo = new Transformation(MainCamera.Tf);
+                DragInfo.State = DragState.MiddleButton;
             }
 
             if(e.Button == MouseButtons.Right) {
-                DragInfo.State = DragState.CameraTranslation;
-                DragInfo.StartInfo = new Transformation(MainCamera.Tf);
+                DragInfo.State = DragState.RightButton;
             }
 
             if(e.Button == MouseButtons.Left) {
-                OpObject = ObjectMapFuzzy(DragInfo.StartX, DragInfo.StartY);
+                DragInfo.State = DragState.LeftButton;
+            }
+        }
 
-                if(OpObject.Type == ObjectType.ModelVertex)
-                    ModelVertex_Click();
-                else if(OpObject.Type == ObjectType.ModelEdge)
-                    ModelEdge_Click();
-                else if(OpObject.Type == ObjectType.ModelFacet)
-                    ModelFacet_Click();
-                else {
-                    if(OpObject.Type == ObjectType.RotationTransformer)
-                        DragInfo.State = DragState.RotationTransformer;
-                    else if(OpObject.Type == ObjectType.ScalingTransformer)
-                        DragInfo.State = DragState.ScalingTransformer;
-                    else if(OpObject.Type == ObjectType.TranslationTransformer)
-                        DragInfo.State = DragState.TranslationTransformer;
-
-                    var start_pos = new List<Tuple<int, Vector3>>();
-                    foreach(MeshVertex v in Model.SelectedVertices)
-                        start_pos.Add(new Tuple<int, Vector3>(v.Index, v.Position));
-                    DragInfo.StartInfo = start_pos;
-                }
+        void TryKeepSelection() {
+            if(!KeepSelectionOnClick && Model.SelectedVertices.Count > 0) {
+                Model.DeselectAll();
+                Model.UpdateAll();
             }
         }
 
@@ -411,10 +481,22 @@ namespace CubeSharp
         }
 
         void ModelEdge_Click() {
-            Model.Edges[OpObject.Index].Selected = true;
-            Model.Edges[OpObject.Index].V1.Selected = true;
-            Model.Edges[OpObject.Index].V2.Selected = true;
+            MeshEdge e = Model.Edges[OpObject.Index];
+
+            if(IsSplitting) {
+                Model.SplitEdgeAt(e, OpObject.Position);
+                Model.UpdateAll();
+                return;
+            }
+
+            e.Selected = true;
+            e.V1.Selected = true;
+            e.V2.Selected = true;
             Model.UpdateAll();
+
+            Console.WriteLine(e.V1.Position + "-->" + e.V2.Position);
+            Console.WriteLine((e.F1 == null ? -1 : e.F1.Index) + ", " +
+                    (e.F2 == null ? -1 : e.F2.Index));
         }
 
         void ModelFacet_Click() {
@@ -479,6 +561,35 @@ namespace CubeSharp
                 pos[OpObject.Index] += dis * delta;
                 Console.WriteLine(pos);
                 Model.Vertices[t.Item1].Position = pos;
+            }
+
+            Model.UpdateAll();
+        }
+
+        void BoxSelect_Finished() {
+            UpdateObjectMap();
+
+            HashSet<int> selected_index_set = new HashSet<int>();
+
+            for(int i = DragInfo.StartY; i <= DragInfo.CurrentY; i++)
+            for(int j = DragInfo.StartX; j <= DragInfo.CurrentX; j++) {
+                int X = j, Y = Viewport.Height - i - 1;
+
+                if((int)obj_map_buffer[Y, X, 1] == (int)BoxSelectingType) {
+                    OpObject.Index = (int)obj_map_buffer[Y, X, 0] - 1;
+                    if(selected_index_set.Contains(OpObject.Index))
+                        continue;
+
+                    if(BoxSelectingType == ObjectType.ModelVertex) {
+                        ModelVertex_Click();
+                    } else if(BoxSelectingType == ObjectType.ModelEdge) {
+                        ModelEdge_Click();
+                    } else if(BoxSelectingType == ObjectType.ModelFacet) {
+                        ModelFacet_Click();
+                    }
+
+                    selected_index_set.Add(OpObject.Index);
+                }
             }
 
             Model.UpdateAll();
