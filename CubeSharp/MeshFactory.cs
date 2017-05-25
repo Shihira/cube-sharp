@@ -13,6 +13,15 @@ namespace CubeSharp
             AddMeshGraphUpon(ref mg, false);
             return mg;
         }
+
+        protected void SelectAdjacency(MeshVertex v) {
+            v.Selected = true;
+            foreach(MeshEdge e in v.Edges) {
+                e.Selected = true;
+                if(e.F1 != null) e.F1.Selected = true;
+                if(e.F2 != null) e.F2.Selected = true;
+            }
+        }
     }
 
     public class BoxMeshFactory : MeshFactory {
@@ -29,27 +38,26 @@ namespace CubeSharp
                 ref MeshGraph mg, bool selected = true) {
             float l = Length / 2 , w = Width / 2, h = Height / 2;
 
-            MeshVertex v0 = mg.AddVertex( l,  h,  w);
-            MeshVertex v1 = mg.AddVertex( l,  h, -w);
-            MeshVertex v2 = mg.AddVertex( l, -h,  w);
-            MeshVertex v3 = mg.AddVertex( l, -h, -w);
-            MeshVertex v4 = mg.AddVertex(-l,  h,  w);
-            MeshVertex v5 = mg.AddVertex(-l,  h, -w);
-            MeshVertex v6 = mg.AddVertex(-l, -h,  w);
-            MeshVertex v7 = mg.AddVertex(-l, -h, -w);
+            MeshVertex[] vs = new MeshVertex[8];
+            vs[0] = mg.AddVertex( l,  h,  w);
+            vs[1] = mg.AddVertex( l,  h, -w);
+            vs[2] = mg.AddVertex( l, -h,  w);
+            vs[3] = mg.AddVertex( l, -h, -w);
+            vs[4] = mg.AddVertex(-l,  h,  w);
+            vs[5] = mg.AddVertex(-l,  h, -w);
+            vs[6] = mg.AddVertex(-l, -h,  w);
+            vs[7] = mg.AddVertex(-l, -h, -w);
 
-            mg.AddFacet(v2, v3, v1, v0);
-            mg.AddFacet(v4, v5, v7, v6);
-            mg.AddFacet(v1, v5, v4, v0);
-            mg.AddFacet(v2, v6, v7, v3);
-            mg.AddFacet(v0, v4, v6, v2);
-            mg.AddFacet(v3, v7, v5, v1);
+            mg.AddFacet(vs[2], vs[3], vs[1], vs[0]);
+            mg.AddFacet(vs[4], vs[5], vs[7], vs[6]);
+            mg.AddFacet(vs[1], vs[5], vs[4], vs[0]);
+            mg.AddFacet(vs[2], vs[6], vs[7], vs[3]);
+            mg.AddFacet(vs[0], vs[4], vs[6], vs[2]);
+            mg.AddFacet(vs[3], vs[7], vs[5], vs[1]);
 
             if(selected) {
-                v0.Selected = true; v1.Selected = true;
-                v2.Selected = true; v3.Selected = true;
-                v4.Selected = true; v5.Selected = true;
-                v6.Selected = true; v7.Selected = true;
+                foreach(MeshVertex v in vs)
+                    SelectAdjacency(v);
             }
         }
 

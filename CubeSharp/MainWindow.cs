@@ -67,6 +67,7 @@ namespace CubeSharp
         GridRenderer grdr;
         TranslationTransformerRenderer tcrdr;
         ScalingTransformerRenderer scrdr;
+        RotationTransformerRenderer rcrdr;
         SelectionBoxRenderer sbrdr;
 
         // Controls
@@ -129,6 +130,7 @@ namespace CubeSharp
             grdr = new GridRenderer();
             tcrdr = new TranslationTransformerRenderer();
             scrdr = new ScalingTransformerRenderer();
+            rcrdr = new RotationTransformerRenderer();
             sbrdr = new SelectionBoxRenderer();
 
             Model = new BoxMeshFactory().GenerateMeshGraph();
@@ -151,6 +153,8 @@ namespace CubeSharp
             tcrdr.Model = Model;
             scrdr.Camera = MainCamera;
             scrdr.Model = Model;
+            rcrdr.Camera = MainCamera;
+            rcrdr.Model = Model;
 
             CubeSharp_Resize(null, null);
         }
@@ -186,11 +190,14 @@ namespace CubeSharp
             if(Model.SelectedVertices.Count > 0) {
                 tcrdr.ScreenMode = true;
                 scrdr.ScreenMode = true;
+                rcrdr.ScreenMode = true;
 
                 if(CurrentTransformer == TransformerType.TranslationTransformer)
                     tcrdr.Render(RenderTarget.Screen);
                 if(CurrentTransformer == TransformerType.ScalingTransformer)
                     scrdr.Render(RenderTarget.Screen);
+                if(CurrentTransformer == TransformerType.RotationTransformer)
+                    rcrdr.Render(RenderTarget.Screen);
             }
 
             if(DragInfo.State == DragState.BoxSelect) {
@@ -226,11 +233,14 @@ namespace CubeSharp
                 if(Model.SelectedVertices.Count > 0) {
                     tcrdr.ScreenMode = false;
                     scrdr.ScreenMode = false;
+                    rcrdr.ScreenMode = false;
 
                     if(CurrentTransformer == TransformerType.TranslationTransformer)
                         tcrdr.Render(obj_map);
                     if(CurrentTransformer == TransformerType.ScalingTransformer)
                         scrdr.Render(obj_map);
+                    if(CurrentTransformer == TransformerType.RotationTransformer)
+                        rcrdr.Render(obj_map);
                 }
 
                 GL.BindTexture(TextureTarget.Texture2D, obj_map.TextureColor);
@@ -362,6 +372,8 @@ namespace CubeSharp
                         DragInfo.State = DragState.TranslationTransformer;
                     } else if(OpObject.Type == ObjectType.ScalingTransformer) {
                         DragInfo.State = DragState.ScalingTransformer;
+                    } else if(OpObject.Type == ObjectType.RotationTransformer) {
+                        DragInfo.State = DragState.RotationTransformer;
                     } else {
                         DragInfo.State = DragState.None;
                         save_selected_pos = false;
@@ -402,6 +414,8 @@ namespace CubeSharp
                 TranslationTransformer_Drag();
             else if(s == DragState.ScalingTransformer)
                 ScalingTransformer_Drag();
+            else if(s == DragState.RotationTransformer)
+                RotationTransformer_Drag();
 
             DragInfo.WasDragging = true;
         }
@@ -548,18 +562,53 @@ namespace CubeSharp
             Model.UpdateAll();
         }
 
+        Vector3 CenterFromStartInfo() {
+            Vector3 center = new Vector3(0, 0, 0);
+            foreach(var t in (List<Tuple<int, Vector3>>)DragInfo.StartInfo)
+                center += t.Item2;
+            center /= Model.SelectedVertices.Count;
+
+            return center;
+        }
+
         void ScalingTransformer_Drag() {
             Vector2 dir = scrdr.ScreenVector(OpObject.Index);
             float dis = Vector2.Dot(new Vector2(
                         DragInfo.DeltaX, DragInfo.DeltaY), dir); 
             dis /= 50;
-            Vector3 center = scrdr.Position;
+
+            Vector3 center = CenterFromStartInfo();
 
             foreach(var t in (List<Tuple<int, Vector3>>)DragInfo.StartInfo) {
                 Vector3 pos = t.Item2;
                 float delta = pos[OpObject.Index] - center[OpObject.Index];
                 pos[OpObject.Index] += dis * delta;
                 Console.WriteLine(pos);
+                Model.Vertices[t.Item1].Position = pos;
+            }
+
+            Model.UpdateAll();
+        }
+
+        void RotationTransformer_Drag() {
+            Vector2 dir = rcrdr.ScreenVector(OpObject.Index, OpObject.Position);
+            float dis = Vector2.Dot(new Vector2(
+                        DragInfo.DeltaX, DragInfo.DeltaY), dir); 
+            dis /= 50;
+
+            Vector3 center = CenterFromStartInfo();
+
+            foreach(var t in (List<Tuple<int, Vector3>>)DragInfo.StartInfo) {
+                Vector3 pos = t.Item2;
+                Vector3 delta = pos - center;
+                Matrix4 mat =
+                    OpObject.Index == 0 ? Matrix4.CreateRotationX(dis) :
+                    OpObject.Index == 1 ? Matrix4.CreateRotationY(dis) :
+                    OpObject.Index == 2 ? Matrix4.CreateRotationZ(dis) : Matrix4.Identity;
+                delta = Vector3.Transform(delta, mat);
+                Console.WriteLine(delta);
+                pos = center + delta;
+
                 Model.Vertices[t.Item1].Position = pos;
             }
 

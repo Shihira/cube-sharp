@@ -101,7 +101,7 @@ namespace CubeSharp
         }
 
         public void f_Edit_Rotate() {
-            throw new NotImplementedException("Not implemented.");
+            ParentWindow.CurrentTransformer = TransformerType.RotationTransformer;
         }
 
         public void f_Edit_Delete() {
@@ -251,6 +251,9 @@ namespace CubeSharp
         }
 
         public void f_Create_Cube() {
+            ParentWindow.Model.DeselectAll();
+            new BoxMeshFactory().AddMeshGraphUpon(ref ParentWindow.Model);
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Create_Sphere() {

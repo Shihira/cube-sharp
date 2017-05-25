@@ -633,9 +633,9 @@ namespace CubeSharp
             axis = new MeshGraph();
 
             axisColors = new Vector4[3];
-            axisColors[0] = new Vector4(0, 0, 1, 1);
-            axisColors[1] = new Vector4(1, 0, 0, 1);
-            axisColors[2] = new Vector4(0, 1, 0, 1);
+            axisColors[0] = new Vector4(1, 0, 0, 1);
+            axisColors[1] = new Vector4(0, 1, 0, 1);
+            axisColors[2] = new Vector4(0, 0, 1, 1);
         }
 
         public override void Render(RenderTarget rt) {
@@ -680,9 +680,9 @@ namespace CubeSharp
             axis.FacetData.UpdateData();
 
             axisTfs = new Matrix4[3];
-            axisTfs[0] = Matrix4.Identity;
-            axisTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
-            axisTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+            axisTfs[0] = Matrix4.CreateRotationY((float)Math.PI / 2);
+            axisTfs[1] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+            axisTfs[2] = Matrix4.Identity;
         }
 
         protected override Matrix4 Tf(int i) {
@@ -724,9 +724,9 @@ namespace CubeSharp
             axis.FacetData.UpdateData();
 
             axisTfs = new Matrix4[3];
-            axisTfs[0] = Matrix4.Identity;
-            axisTfs[1] = Matrix4.CreateRotationY((float)Math.PI / 2);
-            axisTfs[2] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+            axisTfs[0] = Matrix4.CreateRotationY((float)Math.PI / 2);
+            axisTfs[1] = Matrix4.CreateRotationX(-(float)Math.PI / 2);
+            axisTfs[2] = Matrix4.Identity;
 
             Scaling = new Vector3(1, 1, 1);
         }
@@ -748,6 +748,69 @@ namespace CubeSharp
             pos[axis] = pos[axis] + 1;
             Vector4 v_end = Vector4.Transform(
                 new Vector4(pos, 1), Camera.VPMatrix);
+            v_end /= v_end.W;
+            v_end.Y = -v_end.Y;
+
+            return (v_end - v_org).Normalized().Xy;
+        }
+    }
+
+    public class RotationTransformerRenderer : TransformerRenderer {
+        protected Matrix4[] axisTfs;
+
+        public RotationTransformerRenderer() :
+                base(ObjectType.RotationTransformer) {
+            MeshVertex[] vs = new MeshVertex[32];
+            for(int i = 0; i < 32; i++) {
+                double a = 2.0 * Math.PI * i / 32.0;
+                vs[i] = axis.AddVertex(1.5f * (float)Math.Cos(a), 0, 1.5f * (float)Math.Sin(a));
+                if(i > 0) axis.AddEdge(vs[i-1], vs[i]);
+            }
+            axis.AddEdge(vs[31], vs[0]);
+            axis.EdgeData.UpdateData();
+
+            axisTfs = new Matrix4[3];
+            axisTfs[0] = Matrix4.CreateRotationZ((float)Math.PI / 2); // x
+            axisTfs[1] = Matrix4.Identity; // y
+            axisTfs[2] = Matrix4.CreateRotationX((float)Math.PI / 2); // z
+        }
+
+        protected override Matrix4 Tf(int i) {
+            return axisTfs[i] * Matrix4.CreateTranslation(Position);
+        }
+
+        public Vector2 ScreenVector(int axis, Vector3 startpt) {
+            Vector3 pos = Position;
+            Vector3 diff = startpt - pos;
+            double a = diff[(axis + 1) % 3], b = diff[(axis + 2) % 3];
+            double r = Math.Sqrt(a * a + b * b);
+            a /= r; b /= r;
+            double angle = Math.Atan2(b, a) + Math.PI / 4;
+            double a_ = Math.Cos(angle), b_ = Math.Sin(angle);
+
+            a *= 1.5; b *= 1.5;
+            a_ *= 1.414213562 * 1.5; b_ *= 1.414213562 * 1.5;
+
+            diff[axis] = 0;
+            diff[(axis + 1) % 3] = (float)a;
+            diff[(axis + 2) % 3] = (float)b;
+
+            Console.WriteLine(diff);
+
+            Vector4 v_org = Vector4.Transform(
+                new Vector4(diff + pos, 1), Camera.VPMatrix);
+            v_org /= v_org.W;
+            v_org.Y = -v_org.Y;
+
+            diff[axis] = 0;
+            diff[(axis + 1) % 3] = (float)a_;
+            diff[(axis + 2) % 3] = (float)b_;
+
+            Console.WriteLine(diff);
+
+            pos[axis] = pos[axis] + 1;
+            Vector4 v_end = Vector4.Transform(
+                new Vector4(diff + pos, 1), Camera.VPMatrix);
             v_end /= v_end.W;
             v_end.Y = -v_end.Y;
 
