@@ -361,7 +361,7 @@ namespace CubeSharp
         Vertex = 1, Edge = 2, Facet = 4, All = 7,
     }
 
-    public class ScreenRenderer : RendererWithCamera {
+    public class WireframeRenderer : RendererWithCamera {
         string vertex_shader_source = @"
         #version 330 core
 
@@ -408,7 +408,7 @@ namespace CubeSharp
 
         DrawMode Mode = DrawMode.All;
 
-        public ScreenRenderer()
+        public WireframeRenderer()
         {
             SetSource(vertex_shader_source, "", fragment_shader_source);
         }
@@ -444,6 +444,66 @@ namespace CubeSharp
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Point);
                 GL.DrawArrays(BeginMode.Points, 0, Model.VertexData.Count);
             }
+        }
+    }
+
+    public class ShadedRenderer : RendererWithCamera {
+        string vertex_shader_source = @"
+        #version 330 core
+
+        uniform mat4 vp;
+
+        layout(location = 0) in vec4 attr_position;
+        layout(location = 1) in vec3 attr_normal;
+
+        out vec3 normal;
+        out vec4 position;
+
+        void main()
+        {
+            position = attr_position;
+            normal = attr_normal;
+            vec4 p = vec4(position.xyz, 1);
+            gl_Position = vp * p;
+        }";
+
+        string fragment_shader_source = @"
+        #version 330 core
+
+        uniform vec3 light;
+        uniform mat4 vp;
+
+        in vec3 normal;
+        in vec4 position;
+        out vec4 outColor;
+
+        void main()
+        {
+            float c = dot(normalize(light - position.xyz), normal);
+            if(c < 0) c = -c;
+            c = clamp(c, 0.1, 1);
+            outColor = vec4(c, c, c, 1);
+        }";
+
+        public MeshGraph Model;
+
+        public ShadedRenderer()
+        {
+            SetSource(vertex_shader_source, "", fragment_shader_source);
+        }
+
+        public override void Render(RenderTarget rt) {
+            rt.Use();
+            GL.UseProgram(Program);
+            UpdateCamera("vp");
+
+            GL.Enable(EnableCap.CullFace);
+            GL.Enable(EnableCap.DepthTest);
+            Vector3 v = Camera.Tf.Matrix.ExtractTranslation();
+            GL.Uniform3(Uniform("light"), ref v);
+            GL.BindVertexArray(Model.FacetDataWithNormal.GLAttrib);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+            GL.DrawArrays(BeginMode.Triangles, 0, Model.FacetDataWithNormal.Count);
         }
     }
 
@@ -820,6 +880,7 @@ namespace CubeSharp
 
     public class SelectionBoxRenderer : RendererBase {
         MeshGraph plane;
+        MeshGraph line;
 
         public Vector2 StartPoint;
         public Vector2 EndPoint;
@@ -846,6 +907,8 @@ namespace CubeSharp
             outColor = vec4(1, 1, 1, 0.2);
         }";
 
+        public bool RenderPlane = true;
+
         public SelectionBoxRenderer() {
             SetSource(vertex_shader_source, "", fragment_shader_source);
 
@@ -857,6 +920,12 @@ namespace CubeSharp
 
             plane.AddFacet(v1, v2, v3, v4);
             plane.FacetData.UpdateData();
+
+            line = new MeshGraph();
+            var l1 = line.AddVertex(0, 0, 0);
+            var l2 = line.AddVertex(1, 1, 0);
+            line.AddEdge(l1, l2);
+            line.EdgeData.UpdateData();
         }
 
         public override void Render(RenderTarget rt) {
@@ -875,10 +944,17 @@ namespace CubeSharp
             GL.BlendFunc(BlendingFactorSrc.SrcAlpha,
                 BlendingFactorDest.OneMinusSrcAlpha);
 
-            GL.BindVertexArray(plane.FacetData.GLAttrib);
-            GL.Uniform4(Uniform("rect"), sp.X, sp.Y, sz.X, sz.Y);
-            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-            GL.DrawArrays(BeginMode.Triangles, 0, plane.FacetData.Count);
+            if(RenderPlane) {
+                GL.BindVertexArray(plane.FacetData.GLAttrib);
+                GL.Uniform4(Uniform("rect"), sp.X, sp.Y, sz.X, sz.Y);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                GL.DrawArrays(BeginMode.Triangles, 0, plane.FacetData.Count);
+            } else {
+                GL.BindVertexArray(line.EdgeData.GLAttrib);
+                GL.Uniform4(Uniform("rect"), sp.X, sp.Y, sz.X, sz.Y);
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+                GL.DrawArrays(BeginMode.Lines, 0, line.EdgeData.Count);
+            }
 
             GL.Disable(EnableCap.Blend);
         }

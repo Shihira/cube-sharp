@@ -162,13 +162,125 @@ namespace CubeSharp
         }
 
         public void f_Edit_Join() {
+            // find outer edges and duplicated(inner) edges
+            Dictionary<MeshEdge, bool> edtable = new Dictionary<MeshEdge, bool>();
+            HashSet<MeshEdge> dup_edges = new HashSet<MeshEdge>();
+            foreach(MeshFacet f in ParentWindow.Model.SelectedFacets) {
+                foreach(MeshEdge e in f.Edges) {
+                    if(dup_edges.Contains(e)) {
+                        continue;
+                    } else if(edtable.ContainsKey(e)) {
+                        edtable.Remove(e);
+                        dup_edges.Add(e);
+                        continue;
+                    }
+
+                    edtable.Add(e, e.F1 == f ? true : false);
+                }
+            }
+
+            List<MeshVertex> vs = new List<MeshVertex>();
+            vs.Add(edtable.First().Value ? edtable.First().Key.V1 : edtable.First().Key.V2);
+            MeshVertex cur_v = edtable.First().Value ? edtable.First().Key.V2 : edtable.First().Key.V1;
+
+            while(cur_v != vs[0]) {
+                vs.Add(cur_v);
+                foreach(MeshEdge e in cur_v.Edges) {
+                    if(edtable.ContainsKey(e)) {
+                        if(edtable[e] && e.V1 == cur_v) {
+                            cur_v = e.V2;
+                            break;
+                        }
+                        if(!edtable[e] && e.V2 == cur_v) {
+                            cur_v = e.V1;
+                            break;
+                        }
+                    }
+                }
+
+                if(cur_v == vs.Last())
+                    throw new Exception("Unknown Error");
+            }
+
+            List<MeshFacet> oldfacets = new List<MeshFacet>(ParentWindow.Model.SelectedFacets);
+            foreach(MeshFacet f in oldfacets) ParentWindow.Model.RemoveFacet(f);
+            foreach(MeshEdge e in dup_edges) ParentWindow.Model.RemoveEdge(e);
+
+            ParentWindow.Model.AddFacet(vs.ToArray());
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Edit_Extrude() {
+            // maintaining the oldvertex-newvertex table
+            Dictionary<MeshVertex, MeshVertex> ontable = new Dictionary<MeshVertex, MeshVertex>();
+            foreach(MeshFacet f in ParentWindow.Model.SelectedFacets) {
+                foreach(MeshVertex v in f.Vertices) {
+                    if(ontable.ContainsKey(v)) continue;
+                    ontable.Add(v, ParentWindow.Model.AddVertex(v.Position));
+                }
+            }
+
+            // copy facets and maintain (old)edge-direction table
+            Dictionary<MeshEdge, bool> edtable = new Dictionary<MeshEdge, bool>();
+            HashSet<MeshEdge> dup_edges = new HashSet<MeshEdge>();
+            List<MeshFacet> newfacets = new List<MeshFacet>();
+            foreach(MeshFacet f in ParentWindow.Model.SelectedFacets) {
+                newfacets.Add(ParentWindow.Model.AddFacet(
+                        f.Vertices.Select(x => ontable[x]).ToArray()));
+
+                // delete (old)edge when duplicated
+                foreach(MeshEdge e in f.Edges) {
+                    if(dup_edges.Contains(e)) {
+                        continue;
+                    } else if(edtable.ContainsKey(e)) {
+                        edtable.Remove(e);
+                        dup_edges.Add(e);
+                        continue;
+                    }
+
+                    edtable.Add(e, e.F1 == f ? true : false);
+                }
+            }
+
+            // delete dup edges and old facets
+            List<MeshFacet> oldfacets = new List<MeshFacet>(ParentWindow.Model.SelectedFacets);
+            foreach(MeshFacet f in oldfacets) ParentWindow.Model.RemoveFacet(f);
+            foreach(MeshEdge e in dup_edges) ParentWindow.Model.RemoveEdge(e);
+
+            // construct cliff
+            foreach(var ed in edtable) {
+                if(ed.Value) {
+                    ParentWindow.Model.AddFacet(ed.Key.V1, ed.Key.V2,
+                            ontable[ed.Key.V2], ontable[ed.Key.V1]);
+                }
+                if(!ed.Value) {
+                    ParentWindow.Model.AddFacet(ed.Key.V2, ed.Key.V1,
+                            ontable[ed.Key.V1], ontable[ed.Key.V2]);
+                }
+            }
+
+            ParentWindow.Model.DeselectAll();
+
+            foreach(MeshFacet f in newfacets) {
+                f.Selected = true;
+                foreach(MeshEdge e in f.Edges) {
+                    e.Selected = true;
+                    e.V1.Selected = true;
+                    e.V2.Selected = true;
+                }
+            }
+
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Edit_Split() {
             ParentWindow.IsSplitting = true;
+        }
+
+        public void f_File_Import() {
+        }
+
+        public void f_File_Export() {
         }
 
         public void f_Selection_Select_All() {
@@ -236,18 +348,30 @@ namespace CubeSharp
         }
 
         public void f_View_Wireframe() {
+            ParentWindow.IsWireframe = true;
         }
 
         public void f_View_Shaded() {
+            ParentWindow.Model.FacetDataWithNormal.UpdateData();
+            ParentWindow.IsWireframe = false;
         }
 
         public void f_View_Reset_Camera() {
+            ParentWindow.MainCamera.Tf = new Transformation();
+            ParentWindow.MainCamera.Tf.RotateY(-Math.PI / 6);
+            ParentWindow.MainCamera.Tf.RotateX(-Math.PI / 6);
+            ParentWindow.MainCamera.Tf.Translate(0, 0, 5);
         }
 
         public void f_Create_Vertex() {
+            ParentWindow.Model.DeselectAll();
+            ParentWindow.Model.AddVertex(0, 0, 0).Selected = true;
         }
 
         public void f_Create_Plane() {
+            ParentWindow.Model.DeselectAll();
+            new PlaneFactory().AddMeshGraphUpon(ref ParentWindow.Model);
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Create_Cube() {
@@ -257,9 +381,15 @@ namespace CubeSharp
         }
 
         public void f_Create_Sphere() {
+            ParentWindow.Model.DeselectAll();
+            new UVSphereFactory().AddMeshGraphUpon(ref ParentWindow.Model);
+            ParentWindow.Model.UpdateAll();
         }
 
         public void f_Create_Cylinder() {
+            ParentWindow.Model.DeselectAll();
+            new CylinderFactory().AddMeshGraphUpon(ref ParentWindow.Model);
+            ParentWindow.Model.UpdateAll();
         }
     }
 }

@@ -83,5 +83,93 @@ namespace CubeSharp
             mg.AddFacet(vhead4, vhead1, vhead);
         }
     }
+
+    public class UVSphereFactory : MeshFactory {
+        public float Radius = 2;
+        public int USubdivision = 32;
+        public int VSubdivision = 16;
+
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
+            MeshVertex[,] vs = new MeshVertex[VSubdivision - 1,USubdivision];
+            for(int v = 1; v < VSubdivision; v++)
+            for(int u = 0; u < USubdivision; u++) {
+                double a = Math.PI * 2 * u / USubdivision;
+                double b = - Math.PI * v / VSubdivision + Math.PI / 2;
+                vs[v-1,u] = mg.AddVertex(
+                    (float)(Radius * Math.Cos(a) * Math.Cos(b)),
+                    (float)(Radius * Math.Sin(b)),
+                   -(float)(Radius * Math.Sin(a) * Math.Cos(b)));
+            }
+
+            for(int v = 0; v < VSubdivision - 2; v++)
+            for(int u = 0; u < USubdivision; u++) {
+                mg.AddFacet(vs[v,u], vs[v+1,u],
+                        vs[v+1, (u+1) % USubdivision], vs[v,(u+1) % USubdivision]);
+            }
+
+            MeshVertex top = mg.AddVertex(0, Radius, 0),
+                       btm = mg.AddVertex(0, -Radius, 0);
+            for(int u = 0; u < USubdivision; u++) {
+                mg.AddFacet(top, vs[0, u], vs[0,(u+1) % USubdivision]);
+                mg.AddFacet(vs[VSubdivision - 2,(u+1) % USubdivision],
+                        vs[VSubdivision - 2, u], btm);
+            }
+
+            foreach(MeshVertex v in vs)
+                SelectAdjacency(v);
+            SelectAdjacency(top);
+            SelectAdjacency(btm);
+        }
+    }
+
+    public class PlaneFactory : MeshFactory {
+        public float Size = 2;
+        public int USubdivision = 10;
+        public int VSubdivision = 10;
+
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
+            MeshVertex[,] vs = new MeshVertex[USubdivision + 1, VSubdivision + 1];
+
+            for(int i = 0; i <= VSubdivision; i++)
+            for(int j = 0; j <= USubdivision; j++) {
+                vs[i,j] = mg.AddVertex(Size * j / USubdivision - Size / 2,
+                        0, -Size * i / VSubdivision - Size / 2);
+            }
+
+            for(int i = 0; i < VSubdivision; i++)
+            for(int j = 0; j < USubdivision; j++)
+                mg.AddFacet(vs[i,j], vs[i,j+1], vs[i+1,j+1], vs[i+1,j]);
+        }
+    }
+
+    public class CylinderFactory : MeshFactory {
+        public float Height = 2;
+        public float Radius = 1;
+        public int Subdivision = 32;
+
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
+            MeshVertex[] topf = new MeshVertex[Subdivision];
+            MeshVertex[] btmf = new MeshVertex[Subdivision];
+
+            for(int i = 0; i < Subdivision; i++) {
+                double a = Math.PI * 2 * i / Subdivision;
+                topf[i] = mg.AddVertex(Radius * (float)Math.Cos(a),
+                        Height / 2, -Radius * (float)Math.Sin(a));
+                btmf[i] = mg.AddVertex(Radius * (float)Math.Cos(a),
+                        -Height / 2, -Radius * (float)Math.Sin(a));
+            }
+
+            mg.AddFacet(topf);
+            mg.AddFacet(btmf.Reverse().ToArray());
+
+            for(int i = 0; i < Subdivision; i++) {
+                mg.AddFacet(topf[i], btmf[i],
+                    btmf[(i+1)%Subdivision], topf[(i+1)%Subdivision]);
+            }
+        }
+    }
 }
 

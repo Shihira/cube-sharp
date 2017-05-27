@@ -62,7 +62,8 @@ namespace CubeSharp
         float[,,] obj_map_buffer;
 
         // Shaders
-        ScreenRenderer srdr;
+        WireframeRenderer wfrdr;
+        ShadedRenderer srdr;
         ObjectMapRenderer crdr;
         GridRenderer grdr;
         TranslationTransformerRenderer tcrdr;
@@ -125,7 +126,8 @@ namespace CubeSharp
         {
             Console.WriteLine(GL.GetString(StringName.Version));
 
-            srdr = new ScreenRenderer();
+            wfrdr = new WireframeRenderer();
+            srdr = new ShadedRenderer();
             crdr = new ObjectMapRenderer();
             grdr = new GridRenderer();
             tcrdr = new TranslationTransformerRenderer();
@@ -144,6 +146,8 @@ namespace CubeSharp
             MainCamera.Tf.RotateX(-Math.PI / 6);
             MainCamera.Tf.Translate(0, 0, 5);
 
+            wfrdr.Camera = MainCamera;
+            wfrdr.Model = Model;
             srdr.Camera = MainCamera;
             srdr.Model = Model;
             crdr.Camera = MainCamera;
@@ -185,7 +189,12 @@ namespace CubeSharp
             GL.Clear(ClearBufferMask.DepthBufferBit);
 
             grdr.Render(RenderTarget.Screen);
-            srdr.Render(RenderTarget.Screen);
+
+            if(IsWireframe) {
+                wfrdr.Render(RenderTarget.Screen);
+            } else {
+                srdr.Render(RenderTarget.Screen);
+            }
 
             if(Model.SelectedVertices.Count > 0) {
                 tcrdr.ScreenMode = true;
@@ -208,6 +217,26 @@ namespace CubeSharp
                         ((float)DragInfo.CurrentX) / Viewport.Width,
                         ((float)DragInfo.CurrentY) / Viewport.Height);
 
+                sbrdr.RenderPlane = true;
+                sbrdr.Render(RenderTarget.Screen);
+            }
+
+            if(IsSplitting && PreviousSplittedVertex != null) {
+                Vector4 v = Vector4.Transform(
+                        new Vector4(PreviousSplittedVertex.Position, 1),
+                        MainCamera.VPMatrix);
+                v /= v.W;
+
+                sbrdr.StartPoint = v.Xy;
+                Console.WriteLine(sbrdr.StartPoint);
+                sbrdr.StartPoint.Y = -sbrdr.StartPoint.Y;
+                sbrdr.StartPoint = sbrdr.StartPoint / 2 + new Vector2(0.5f, 0.5f);
+
+                sbrdr.EndPoint = new Vector2(
+                        ((float)DragInfo.CurrentX) / Viewport.Width,
+                        ((float)DragInfo.CurrentY) / Viewport.Height);
+
+                sbrdr.RenderPlane = false;
                 sbrdr.Render(RenderTarget.Screen);
             }
 
@@ -228,7 +257,8 @@ namespace CubeSharp
                 GL.Clear(ClearBufferMask.ColorBufferBit);
                 GL.Clear(ClearBufferMask.DepthBufferBit);
 
-                crdr.Render(obj_map);
+                if(IsWireframe)
+                    crdr.Render(obj_map);
 
                 if(Model.SelectedVertices.Count > 0) {
                     tcrdr.ScreenMode = false;
@@ -340,7 +370,8 @@ namespace CubeSharp
         public TransformerType CurrentTransformer = TransformerType.TranslationTransformer;
         public ObjectMapElement OpObject; // Object Being Operated
         public bool IsSplitting = false;
-        public int PreviousSplittedIndex = -1;
+        public MeshVertex PreviousSplittedVertex;
+        public bool IsWireframe = true;
 
         ////////////////////////////////////////////////////////////////////////
         // Raw Events
@@ -356,6 +387,9 @@ namespace CubeSharp
         private void glc_MouseMove(Object sender, MouseEventArgs e)
         {
             DragState s = DragInfo.State;
+
+            DragInfo.CurrentX = e.X;
+            DragInfo.CurrentY = e.Y;
 
             if(s == DragState.None)
                 return;
@@ -403,9 +437,6 @@ namespace CubeSharp
                 return;
             }
 
-            DragInfo.CurrentX = e.X;
-            DragInfo.CurrentY = e.Y;
-
             if(s == DragState.CameraRotation)
                 CameraRotation_Drag();
             else if(s == DragState.CameraTranslation)
@@ -436,6 +467,7 @@ namespace CubeSharp
                 // This behavious is usually cancelling actions
                 if(DragInfo.State == DragState.RightButton) {
                     IsSplitting = false;
+                    PreviousSplittedVertex = null;
                 } else if(DragInfo.State == DragState.LeftButton) {
                     OpObject = ObjectMapFuzzy(e.X, e.Y, 3, (int)ObjectType.ModelVertex);
 
@@ -490,6 +522,15 @@ namespace CubeSharp
         /// Semantic Events
 
         void ModelVertex_Click() {
+            if(IsSplitting) {
+                if(PreviousSplittedVertex != null)
+                    Model.AddEdge(PreviousSplittedVertex,
+                            Model.Vertices[OpObject.Index], true);
+                PreviousSplittedVertex = Model.Vertices[OpObject.Index];
+                Model.UpdateAll();
+                return;
+            }
+
             Model.Vertices[OpObject.Index].Selected = true;
             Model.UpdateAll();
         }
@@ -498,7 +539,11 @@ namespace CubeSharp
             MeshEdge e = Model.Edges[OpObject.Index];
 
             if(IsSplitting) {
-                Model.SplitEdgeAt(e, OpObject.Position);
+                MeshVertex v = Model.SplitEdgeAt(e, OpObject.Position);
+                if(PreviousSplittedVertex != null)
+                    Model.AddEdge(PreviousSplittedVertex, v, true);
+                PreviousSplittedVertex = v;
+
                 Model.UpdateAll();
                 return;
             }

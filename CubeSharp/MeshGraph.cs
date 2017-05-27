@@ -191,6 +191,13 @@ namespace CubeSharp
             get { return vertices; }
         }
 
+        public Vector3 Normal {
+            get {
+                return Vector3.Cross(vertices[1].Position - vertices[0].Position,
+                        vertices[2].Position - vertices[1].Position).Normalized();
+            }
+        }
+
         public IEnumerable<MeshEdge> Edges {
             get {
                 for(int i = 0; i < vertices.Count; i++) {
@@ -268,6 +275,7 @@ namespace CubeSharp
                 bool check_facet = false) {
             MeshEdge e = p1.EdgeConnecting(p2);
             if(e != null) return e;
+            if(p1 == p2) return null;
 
             e = new MeshEdge(p1, p2);
             p1.adjacency.Add(p2, e);
@@ -564,6 +572,7 @@ namespace CubeSharp
         ////////////////////////////////////////////////////////////////////////
         
         MeshFacetData mfd;
+        MeshFacetDataWithNormal mfdwn;
         MeshEdgeData med;
         MeshVertexData mvd;
 
@@ -572,6 +581,14 @@ namespace CubeSharp
                 if(mfd == null)
                     mfd = new MeshFacetData(this);
                 return mfd;
+            }
+        }
+
+        public MeshFacetDataWithNormal FacetDataWithNormal {
+            get {
+                if(mfdwn == null)
+                    mfdwn = new MeshFacetDataWithNormal(this);
+                return mfdwn;
             }
         }
 
@@ -743,6 +760,42 @@ namespace CubeSharp
 
                     PushData(v3.Position[0], v3.Position[1], v3.Position[2], f.Index);
                     PushData(f.Selected ? 1 : 0);
+                }
+            }
+
+            StopPushing();
+        }
+    }
+
+    public class MeshFacetDataWithNormal : MeshDataBase {
+
+        MeshGraph Mesh;
+
+        public MeshFacetDataWithNormal() : base(4, 3) { }
+        public MeshFacetDataWithNormal(MeshGraph mg) : this() {
+            Mesh = mg;
+        }
+
+        public override void UpdateData() {
+            StartPushing(Mesh.TrianglesCount * 3);
+
+            foreach(MeshFacet f in Mesh.Facets) {
+                Vector3 n = f.Normal;
+                for(int i = 0; i < f.TrianglesCount; i++) {
+                    // Iteration Count: this.TrianglesCount
+
+                    MeshVertex v1 = f.vertices[0];
+                    MeshVertex v2 = f.vertices[i + 1];
+                    MeshVertex v3 = f.vertices[i + 2];
+
+                    PushData(v1.Position[0], v1.Position[1], v1.Position[2], f.Index);
+                    PushData(n[0], n[1], n[2]);
+
+                    PushData(v2.Position[0], v2.Position[1], v2.Position[2], f.Index);
+                    PushData(n[0], n[1], n[2]);
+
+                    PushData(v3.Position[0], v3.Position[1], v3.Position[2], f.Index);
+                    PushData(n[0], n[1], n[2]);
                 }
             }
 
