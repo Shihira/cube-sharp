@@ -497,7 +497,8 @@ namespace CubeSharp
             GL.UseProgram(Program);
             UpdateCamera("vp");
 
-            GL.Enable(EnableCap.CullFace);
+            //GL.Enable(EnableCap.CullFace);
+            GL.Disable(EnableCap.CullFace);
             GL.Enable(EnableCap.DepthTest);
             Vector3 v = Camera.Tf.Matrix.ExtractTranslation();
             GL.Uniform3(Uniform("light"), ref v);
@@ -516,14 +517,13 @@ namespace CubeSharp
         layout(location = 0) in vec4 position;
 
         out float index;
-        out float depth;
+        out vec4 pos;
 
         void main()
         {
-            vec4 p = vec4(position.xyz, 1);
-            gl_Position = vp * p;
+            pos = vec4(position.xyz, 1);
+            gl_Position = vp * pos;
             index = position.w;
-            depth = (gl_Position / gl_Position.w).z;
         }";
 
         string fragment_shader_source = @"
@@ -532,12 +532,14 @@ namespace CubeSharp
         uniform ivec4 mode;
 
         in float index;
-        in float depth;
+        in vec4 pos;
         out vec4 outColor;
 
         void main()
         {
-            outColor = vec4(round(index) + 1, mode.x, depth, 0);
+            uint idx = uint(round(index) + 1);
+            float val = uintBitsToFloat(uint(mode.x << 28) | idx);
+            outColor = vec4(val, pos.x, pos.y, pos.z);
         }";
 
         public MeshGraph Model;
@@ -650,19 +652,18 @@ namespace CubeSharp
 
         layout(location = 0) in vec4 position;
 
-        out float depth;
+        out vec4 pos;
 
         void main()
         {
-            vec4 p = vec4(position.xyz, 1);
-            gl_Position = vp * mMat * p;
-            depth = (gl_Position / gl_Position.w).z;
+            pos = vec4(position.xyz, 1);
+            gl_Position = vp * mMat * pos;
         }";
 
         string fragment_shader_source = @"
         #version 330 core
 
-        in float depth;
+        in vec4 pos;
         out vec4 outColor;
         uniform vec4 color;
         uniform ivec2 mode;
@@ -671,8 +672,11 @@ namespace CubeSharp
         {
             if(mode.x == 1)
                 outColor = color;
-            else
-                outColor = vec4(dot(vec4(1, 2, 3, 0), color), mode.y, depth, 0);
+            else {
+                uint idx = uint(dot(vec4(1, 2, 3, 0), color));
+                float val = uintBitsToFloat(uint(mode.y << 28) | idx);
+                outColor = vec4(val, pos.x, pos.y, pos.z);
+            }
         }";
 
         protected MeshGraph axis;

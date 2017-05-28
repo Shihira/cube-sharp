@@ -289,6 +289,13 @@ namespace CubeSharp
             return obj_map_buffer[0,0,3] == -1;
         }
 
+        Tuple<int, int> UnpackVal(float f) {
+            uint val = BitConverter.ToUInt32(BitConverter.GetBytes(f), 0);
+            int i1 = (int) (val & 0x00ffffff) - 1;
+            int i2 = (int) (val >> 28);
+
+            return new Tuple<int, int>(i1, i2);
+        }
 
         ObjectMapElement ObjectMapFuzzy(int x, int y,
                 int r = 3, int obj_upbound = int.MaxValue) {
@@ -300,34 +307,26 @@ namespace CubeSharp
             for(int i = -r; i <= r; i++)
             for(int j = -r; j <= r; j++) {
                 int Y = Viewport.Height-y-1 + i, X = x + j;
+                int cur_type = UnpackVal(obj_map_buffer[Y, X, 0]).Item2;
 
-                if(obj_map_buffer[Y, X, 1] > type &&
-                        obj_map_buffer[Y, X, 1] <= obj_upbound &&
+                if(cur_type > type && cur_type <= obj_upbound &&
                         offx * offx + offy * offy > i*i + j*j) {
-                    type = (int) obj_map_buffer[Y, X, 1];
+                    type = cur_type;
                     offy = i;
                     offx = j;
                 }
             }
 
-            double hfw = Viewport.Width / 2.0, hfh = Viewport.Height / 2.0;
             int max_x = x + offx, max_y = Viewport.Height-y-1 + offy;
 
             ObjectMapElement me = new ObjectMapElement();
             // in controller map, index-0 means emptiness
-            me.Index = ((int)obj_map_buffer[max_y, max_x, 0]) - 1;
-            me.Type = (ObjectType)((int) obj_map_buffer[max_y, max_x, 1]);
-
-            if(type != 0) {
-                Vector4d film_pos = Vector4d.Transform(
-                        new Vector4d(
-                            max_x / hfw - 1,
-                            max_y / hfh - 1,
-                            obj_map_buffer[max_y, max_x, 2], 1),
-                        MainCamera.VPMatrixd.Inverted());
-                film_pos /= film_pos.W;
-                me.Position = (Vector3) film_pos.Xyz;
-            }
+            var val = UnpackVal(obj_map_buffer[max_y, max_x, 0]);
+            me.Index = val.Item1;
+            me.Type = (ObjectType) val.Item2;
+            me.Position = new Vector3(obj_map_buffer[max_y, max_x, 1],
+                    obj_map_buffer[max_y, max_x, 2],
+                    obj_map_buffer[max_y, max_x, 3]);
 
             me.ScreenX = max_x;
             me.ScreenY = Viewport.Height - max_y - 1;
@@ -669,8 +668,11 @@ namespace CubeSharp
             for(int j = DragInfo.StartX; j <= DragInfo.CurrentX; j++) {
                 int X = j, Y = Viewport.Height - i - 1;
 
-                if((int)obj_map_buffer[Y, X, 1] == (int)BoxSelectingType) {
-                    OpObject.Index = (int)obj_map_buffer[Y, X, 0] - 1;
+                var val = UnpackVal(obj_map_buffer[Y, X, 0]);
+
+                if(val.Item2 == (int)BoxSelectingType) {
+                    OpObject.Index = val.Item1;
+
                     if(selected_index_set.Contains(OpObject.Index))
                         continue;
 
