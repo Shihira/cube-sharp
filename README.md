@@ -74,7 +74,7 @@ Extruding gives you a chance to create a pop out (or erect) volume right out of 
 
 ### Import/Export
 
-(Coming Soon)
+Currently only wavefront object is available, which is a widely supported format that can be used in many modeling engines and game engines.
 
 ### Selection
 
@@ -112,15 +112,15 @@ Here are some notes for code readers and maintainers.
 
 ### Renderer
 
-Each frame is consist of multiple render passes, and each render pass is controller by a renderer. All of them are defined in `Renderer.cs`. There are renderers that are in charge of rendering the model itself, renderers that are in charge of rendering the transformers, and others are in charge of some miscellaneous UI elements. Some will not render to the screen visibly and render to video memory (render target). We will talk about it in the next section.
+Each frame is consist of multiple render passes, and each render pass is controlled by a renderer. All of them are defined in `Renderer.cs`. There are renderers that are in charge of rendering the model itself, renderers that are in charge of rendering the transformers, and others are in charge of some miscellaneous UI elements. Some will not render to the screen visibly and render to video memory (render target). We will talk about it in the next section.
 
 ### Cast and Selection
 
 We calculate cast by fetch projection data from graphics card. An concept called ObjectMap exists in this project, representing which object is occupying which pixel. It is actually the decoded content in attached texture. Information is encoded in this way:
 
-Bits | 4 | 28 | 32 | 32 | 32
+Bits(Little Endian) | 28 | 4 | 32 | 32 | 32
 -----|---|----|----|----|----
-Data | Object Type | Object Index | Position X | Y | Z
+Data | Object Index | Object Type | Position X | Y | Z
 
 When a selection is done, object map is fetched and decoded. When users simply clicked, an algorithm will find the element which has the most priority (including the type priority and the distance from click coordinate). When users box select, another algorithm will traverse pixels the box area covers and select everything.
 

@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
+using System.IO;
 using OpenTK;
 
 namespace CubeSharp
@@ -169,6 +171,119 @@ namespace CubeSharp
                 mg.AddFacet(topf[i], btmf[i],
                     btmf[(i+1)%Subdivision], topf[(i+1)%Subdivision]);
             }
+        }
+    }
+
+    public class WavefrontFactory : MeshFactory {
+        public String FileName;
+
+        List<MeshVertex> vertices;
+        Vector3 accum_point;
+
+        Vector3 CenterPoint {
+            get { return accum_point /= vertices.Count; }
+        }
+
+        MeshVertex ParseVertex(String s, MeshGraph mg) {
+            Vector3 pos = new Vector3(0, 0, 0);
+            String[] nums = s.Trim().Split(' ')
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0).ToArray();
+
+            if(nums.Length < 3)
+                throw new Exception("Bad vertex format");
+            pos[0] = float.Parse(nums[0]);
+            pos[1] = float.Parse(nums[1]);
+            pos[2] = float.Parse(nums[2]);
+
+            if(nums.Length == 4)
+                pos /= float.Parse(nums[3]);
+
+            accum_point += pos;
+
+            MeshVertex mv = mg.AddVertex(pos);
+            vertices.Add(mv);
+            return mv;
+        }
+
+        MeshFacet ParseFacet(String s, MeshGraph mg) {
+            String[] items = s.Trim().Split(' ')
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0).ToArray();
+
+            List<int> nums = new List<int>();
+
+            foreach(String i in items) {
+                String[] snums = i.Split('/');
+                nums.Add(int.Parse(snums[0]));
+            }
+
+            var vs = nums.Select(n => vertices[n - 1]).ToArray();
+            try {
+                return mg.AddFacet(vs);
+            } catch(Exception) {
+                try {
+                    return mg.AddFacet(vs.Reverse().ToArray());
+                } catch(Exception e2) {
+                    Console.WriteLine(e2.Message);
+                    Console.WriteLine(e2.StackTrace);
+                }
+            }
+
+            return null;
+        }
+
+        public override void AddMeshGraphUpon(
+                ref MeshGraph mg, bool selected = true) {
+            StreamReader rd = File.OpenText(FileName);
+
+            vertices = new List<MeshVertex>();
+            accum_point = new Vector3(0, 0, 0);
+
+            while(!rd.EndOfStream) {
+                String s = rd.ReadLine();
+
+                if(s.StartsWith("v ")) {
+                    ParseVertex(s.Substring(2), mg);
+                }
+
+                if(s.StartsWith("f ")) {
+                    ParseFacet(s.Substring(2), mg);
+                }
+            }
+
+            foreach(MeshVertex v in vertices) {
+                SelectAdjacency(v);
+            }
+        }
+
+        public void ExportMesh(MeshGraph mg) {
+            StreamWriter rd = File.CreateText(FileName);
+            rd.WriteLine("g CubeSharp_Model");
+
+            foreach(MeshVertex v in mg.Vertices) {
+                rd.WriteLine("v " + v.Position.X + " " + 
+                    v.Position.Y + " " + v.Position.Z);
+            }
+
+            foreach(MeshFacet f in mg.Facets) {
+                var n = f.Normal;
+
+                rd.Write("vn ");
+                rd.Write(n[0] + " " + n[1] + " " + n[2]);
+                rd.WriteLine();
+
+                rd.Write("f ");
+                foreach(MeshVertex v in f.Vertices) {
+                    rd.Write(v.Index + 1);
+                    rd.Write("//");
+                    rd.Write(f.Index + 1); // vn actually
+                    rd.Write(" ");
+                }
+                rd.WriteLine();
+            }
+
+            rd.Close();
         }
     }
 }

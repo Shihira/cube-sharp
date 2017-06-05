@@ -390,6 +390,11 @@ namespace CubeSharp
             DragInfo.CurrentX = e.X;
             DragInfo.CurrentY = e.Y;
 
+            if (DragInfo.CurrentX == DragInfo.StartX &&
+                DragInfo.CurrentY == DragInfo.StartY &&
+                !DragInfo.WasDragging)
+                return;
+
             if(s == DragState.None)
                 return;
 
@@ -496,6 +501,7 @@ namespace CubeSharp
         {
             DragInfo.StartX = e.X;
             DragInfo.StartY = e.Y;
+            DragInfo.WasDragging = false;
 
             if(e.Button == MouseButtons.Middle) {
                 DragInfo.State = DragState.MiddleButton;
@@ -693,7 +699,7 @@ namespace CubeSharp
 
         ////////////////////////////////////////////////////////////////////////
         /// Main
-
+        [STAThread]
         static public void Main(string[] args)
         {
             var win = new MainWindow();

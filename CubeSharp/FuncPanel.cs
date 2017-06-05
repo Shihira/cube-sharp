@@ -278,9 +278,24 @@ namespace CubeSharp
         }
 
         public void f_File_Import() {
+            var dialog = new OpenFileDialog();
+            dialog.Filter = "Wavefront Object (*.obj)|*.obj";
+            if(dialog.ShowDialog(this) == DialogResult.OK) {
+                WavefrontFactory importer = new WavefrontFactory();
+                importer.FileName = dialog.FileName;
+                importer.AddMeshGraphUpon(ref ParentWindow.Model);
+                ParentWindow.Model.UpdateAll();
+            }
         }
 
         public void f_File_Export() {
+            var dialog = new SaveFileDialog();
+            dialog.Filter = "Wavefront Object (*.obj)|*.obj";
+            if(dialog.ShowDialog(this) == DialogResult.OK) {
+                WavefrontFactory importer = new WavefrontFactory();
+                importer.FileName = dialog.FileName;
+                importer.ExportMesh(ParentWindow.Model);
+            }
         }
 
         public void f_Selection_Select_All() {

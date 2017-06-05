@@ -204,9 +204,8 @@ namespace CubeSharp
                     MeshVertex v = vertices[i];
                     MeshVertex next_v = vertices[(i + 1) % vertices.Count];
                     MeshEdge edge = v.EdgeConnecting(next_v);
-                    if(edge == null)
-                        throw new Exception("Bad vertex");
-                    else yield return edge;
+
+                    yield return edge;
                 }
             }
         }
@@ -342,25 +341,46 @@ namespace CubeSharp
         }
 
         public MeshFacet AddFacet(params MeshVertex[] vs) {
-            if(vs.Length < 3) throw new Exception("Vertex count less than 3");
+            if(vs.Length < 3)
+                throw new Exception("Vertex count less than 3.");
+            for(int vi = 0; vi < vs.Length; vi++) {
+                if(vs[vi] == vs[(vi+1)%vs.Length])
+                    throw new Exception("Ill-formed vertex sequence");
+            }
 
             MeshFacet f = new MeshFacet(vs);
 
+            string failure = "";
             for(int vi = 0; vi < vs.Length; vi++) {
                 MeshVertex p1 = vs[vi];
                 MeshVertex p2 = vs[(vi + 1) % vs.Length];
+
                 MeshEdge e = AddEdge(p1, p2);
 
                 if(e.V1 == p1 && e.V2 == p2) {
-                    if(e.f1 != null)
-                        throw new Exception("Positive facet has been occupied");
+                    if(e.f1 != null) {
+                        failure = "Positive facet has been occupied";
+                        break;
+                    }
                     e.f1 = f;
                 } else if(e.V1 == p2 && e.V2 == p1) {
-                    if(e.f2 != null)
-                        throw new Exception("Negative facet has been occupied");
+                    if(e.f2 != null) {
+                        failure = "Negative facet has been occupied";
+                        break;
+                    }
                     e.f2 = f;
                 } else
                     throw new Exception("Unexpected edge");
+            }
+
+            // rollback
+            if(failure.Length > 0) {
+                foreach(MeshEdge e in f.Edges) {
+                    if(e == null) continue;
+                    if(e.f1 == f) e.f1 = null;
+                    if(e.f2 == f) e.f2 = null;
+                }
+                throw new Exception(failure);
             }
 
             int i = facets.Count;
